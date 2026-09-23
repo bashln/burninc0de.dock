@@ -368,7 +368,9 @@ PanelWindow {
         const key = cls || aid
         if (!key || seen[key]) continue
         seen[key] = true
-        let label = root.candidateLabel(key, tl.title)
+        const entry = root.desktopEntryForWindow(cls, aid)
+        let label = entry ? String(entry.name || "") : root.candidateLabel(key, tl.title)
+        if (!label) label = key
         // byName in the order pass below would drop a colliding entry.
         if (used[label]) label = key
         if (used[label]) continue
@@ -378,7 +380,7 @@ PanelWindow {
           pinned: false,
           runningOnly: true,
           name: label,
-          icon: root.candidateIcon(key, cls, aid),
+          icon: root.entryIconSource(entry ? entry.icon : root.candidateIcon(key, cls, aid)),
           cmd: "",
           matchTitle: "",
           appId: aid || cls,
@@ -610,6 +612,45 @@ PanelWindow {
     return root.pinCandidateIcon({ cls: cls, appId: appId })
   }
 
+  // Window class/appId → DesktopEntry, same source the Omarchy app menu uses.
+  // id → StartupWMClass → Exec basename (all case-insensitive).
+  function desktopEntryForWindow(cls, aid) {
+    const idKey = String(aid || "")
+    const clsKey = String(cls || "")
+    if (idKey) {
+      const byAid = DesktopEntries.byId(idKey)
+      if (byAid) return byAid
+    }
+    if (clsKey && clsKey !== idKey) {
+      const byCls = DesktopEntries.byId(clsKey)
+      if (byCls) return byCls
+    }
+    const key = (clsKey || idKey).toLowerCase()
+    if (!key) return null
+    const vals = DesktopEntries.applications.values || []
+    for (const e of vals) {
+      if (!e) continue
+      if (String(e.id).toLowerCase() === key) return e
+      if (String(e.startupClass || "").toLowerCase() === key) return e
+      const bin = String(e.execString || "").split(/[\s]+/)[0].split("/").pop().toLowerCase()
+      if (bin && bin === key) return e
+    }
+    return null
+  }
+
+  // Omarchy AppLibrary.iconSource replica (plugin shell.appLibrary is null
+  // without kind "menu"): absolute/file URL → themed → generic executable.
+  // Never returns empty, so an Image source can't go blank.
+  function entryIconSource(icon) {
+    var v = String(icon || "")
+    if (v.length === 0) return Quickshell.iconPath("application-x-executable", true)
+    if (v.indexOf("file://") === 0 || v.indexOf("image://") === 0) return v
+    if (v.charAt(0) === "/") return Util.fileUrl(v)
+    var themed = Quickshell.iconPath(v, true)
+    if (themed && themed.length > 0) return themed
+    return Quickshell.iconPath("application-x-executable", true)
+  }
+
   // Running apps that no dock icon claims, deduped by class/appId. A toplevel
   // counts as claimed when any configured or pinned app matches it. Labels
   // are resolved synchronously via desktopNameMap (cached) so the menu
@@ -630,7 +671,13 @@ PanelWindow {
       const key = cls || aid
       if (!key || seen[key]) continue
       seen[key] = true
-      out.push({ label: root.candidateLabel(key, tl.title), cls: cls, appId: aid })
+      const entry = root.desktopEntryForWindow(cls, aid)
+      out.push({
+        label: (entry && entry.name) ? String(entry.name) : root.candidateLabel(key, tl.title),
+        icon: entry ? String(entry.icon || "") : root.candidateIcon(key, cls, aid),
+        cls: cls,
+        appId: aid,
+      })
     }
     // Stable alphabetical order so the list does not reshuffle after resolve.
     out.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()))
@@ -763,7 +810,7 @@ PanelWindow {
         const updated = []
         for (const c of root.pinCandidates) {
           const name = resolved[c.cls] || resolved[c.appId] || c.label
-          updated.push({ label: name, cls: c.cls, appId: c.appId })
+          updated.push({ label: name, icon: c.icon || "", cls: c.cls, appId: c.appId })
         }
         root.pinCandidates = updated
         // Also backfill the cache so next open is instant.
@@ -1217,7 +1264,7 @@ PanelWindow {
           Image {
             id: iconImg
             anchors.centerIn: parent
-            source: Quickshell.iconPath(appItem.icon, true)
+            source: root.entryIconSource(appItem.icon)
             // Tracks the Settings-panel size; 54 → 40 keeps the original look.
             width: Math.round(root.itemSize * 40 / root.defaultItemSize)
             height: width
@@ -1567,7 +1614,7 @@ PanelWindow {
                 spacing: 8
 
                 Image {
-                  source: modelData.empty ? "" : Quickshell.iconPath(root.candidateIcon(modelData.cls || modelData.appId, modelData.cls, modelData.appId), true)
+                  source: modelData.empty ? "" : root.entryIconSource(modelData.icon || root.candidateIcon(modelData.cls || modelData.appId, modelData.cls, modelData.appId))
                   width: 16
                   height: 16
                   visible: !modelData.empty
