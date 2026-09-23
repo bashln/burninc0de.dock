@@ -384,7 +384,7 @@ PanelWindow {
           pinned: false,
           runningOnly: true,
           name: label,
-          icon: root.entryIconSource(entry ? entry.icon : root.candidateIcon(key, cls, aid)),
+          icon: entry ? String(entry.icon || "") : root.candidateIcon(key, cls, aid),
           cmd: "",
           matchTitle: "",
           appId: aid || cls,
