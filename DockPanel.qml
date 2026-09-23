@@ -10,7 +10,10 @@ import Quickshell.Io
 PanelWindow {
   id: root
 
-  required property var screen
+  // Declared on the delegate root (not the instance block in Dock.qml) so
+  // Variants injects the QScreen exactly like Omarchy's Background does.
+  required property var modelData
+  screen: modelData
 
   anchors.bottom: true
   anchors.left: true
@@ -48,6 +51,9 @@ PanelWindow {
   property int itemSpacing: defaultItemSpacing
   readonly property real itemPitch: itemSize + itemSpacing
   property bool hideOnEmpty: false
+  // Local flag: DockApps singleton may survive plugin reloads without new
+  // properties — do not depend on cross-file singleton for this.
+  property bool showRunningUnpinned: true
 
   property bool dockVisible: true
   property bool mouseOverDockArea: triggerHover.hovered || dockHover.hovered || contextHover.hovered || windowMenuHover.hovered || pinMenuHover.hovered || settingsHover.hovered
@@ -139,6 +145,9 @@ PanelWindow {
   // KDE's task manager all agree on new-window / pin-unpin / quit. Window
   // lists and "App Details" are deliberately left out — out of scope here.
   readonly property var contextActions: {
+    if (root.contextAppData && root.contextAppData.runningOnly) {
+      return [{ label: "Pin to dock", act: "pin" }]
+    }
     let actions = [{ label: "Open new window", act: "new" }]
     if (root.contextRunning) actions.push({ label: "Quit", act: "quit" })
     actions.push({ label: "Unpin from dock", act: "unpin" })
@@ -311,6 +320,7 @@ PanelWindow {
       matchTitle: app.match ?? "",
       appId: app.appId ?? "",
       minimizable: app.minimizable !== false,
+      runningOnly: false,
     }
   }
 
@@ -334,6 +344,43 @@ PanelWindow {
         }
       }
       if (!duplicate) apps.push(entry)
+    }
+
+    // Running apps no config/pinned entry claims, same scan as the pin menu.
+    // Surface them on the bar so unpinned work is visible without right-click.
+    if (root.showRunningUnpinned) {
+      let claimed = []
+      for (const app of apps) {
+        const tls = root.getToplevelsForApp({ match: app.matchTitle, appId: app.appId, cmd: app.cmd })
+        for (const t of tls) claimed.push(t.toplevel)
+      }
+      const used = {}
+      for (const app of apps) used[app.name] = true
+      const seen = {}
+      for (const tl of Hyprland.toplevels.values) {
+        if (claimed.indexOf(tl) >= 0) continue
+        const cls = tl.lastIpcObject?.class ?? ""
+        const aid = tl.wayland?.appId ?? ""
+        const key = cls || aid
+        if (!key || seen[key]) continue
+        seen[key] = true
+        let label = root.candidateLabel(key, tl.title)
+        // byName in the order pass below would drop a colliding entry.
+        if (used[label]) label = key
+        if (used[label]) continue
+        used[label] = true
+        apps.push({
+          entryId: "",
+          pinned: false,
+          runningOnly: true,
+          name: label,
+          icon: root.pinCandidateIcon({ cls: cls, appId: aid }),
+          cmd: "",
+          matchTitle: "",
+          appId: aid || cls,
+          minimizable: true,
+        })
+      }
     }
 
     if (savedOrder.length > 0) {
@@ -360,7 +407,11 @@ PanelWindow {
 
   function persistOrder() {
     let names = []
-    for (var i = 0; i < appModel.count; i++) names.push(appModel.get(i).name)
+    for (var i = 0; i < appModel.count; i++) {
+      // Transient running-only entries never belong in order.json.
+      if (appModel.get(i).runningOnly) continue
+      names.push(appModel.get(i).name)
+    }
     savedOrder = names
     orderFile.setText(JSON.stringify(names, null, 2) + "\n")
   }
@@ -479,8 +530,12 @@ PanelWindow {
         const title = tl.title.toLowerCase()
         if (title.includes(app.match.toLowerCase())) matched = true
       } else if (app.appId) {
+        const needle = app.appId.toLowerCase()
         const appId = (tl.wayland?.appId ?? "").toLowerCase()
-        if (appId.includes(app.appId.toLowerCase())) matched = true
+        const cls = (tl.lastIpcObject?.class ?? "").toLowerCase()
+        // Class fallback: XWayland windows often report an empty wayland appId,
+        // and running-only entries key on class.
+        if (appId.includes(needle) || cls.includes(needle)) matched = true
       } else {
         const exe = root.execTokenize(app.cmd)[0].split("/").pop().replace(/\.[^/.]+$/, "").toLowerCase()
         const appId = (tl.wayland?.appId ?? "").toLowerCase()
@@ -514,6 +569,29 @@ PanelWindow {
     if (!root.mouseOverDockArea) root.scheduleHide()
   }
 
+  // class/appId (and raw title fallback) → display name via the desktop Name
+  // cache. Shared by the pin menu and running-only bar entries.
+  function candidateLabel(key, title) {
+    const map = root.desktopNameMap
+    let label = key
+    if (map) {
+      const lower = key.toLowerCase()
+      // Direct class/appId match
+      if (map[lower]) label = map[lower]
+      else {
+        // For chrome-host webapps also try host substring (e.g. google.com)
+        const m = lower.match(/chrome-([^_]+)/)
+        if (m && map[m[1]]) label = map[m[1]]
+      }
+      // Final fallback: window title is more readable than raw class
+      if (label === key) {
+        const t = (title || "").trim()
+        if (t && t.length < 60) label = t
+      }
+    }
+    return label
+  }
+
   // Running apps that no dock icon claims, deduped by class/appId. A toplevel
   // counts as claimed when any configured or pinned app matches it. Labels
   // are resolved synchronously via desktopNameMap (cached) so the menu
@@ -527,7 +605,6 @@ PanelWindow {
     }
     const seen = {}
     const out = []
-    const map = root.desktopNameMap
     for (const tl of Hyprland.toplevels.values) {
       if (claimed.indexOf(tl) >= 0) continue
       const cls = tl.lastIpcObject?.class ?? ""
@@ -535,23 +612,7 @@ PanelWindow {
       const key = cls || aid
       if (!key || seen[key]) continue
       seen[key] = true
-      let label = key
-      if (map) {
-        const lower = key.toLowerCase()
-        // Direct class/appId match
-        if (map[lower]) label = map[lower]
-        else {
-          // For chrome-host webapps also try host substring (e.g. google.com)
-          const m = lower.match(/chrome-([^_]+)/)
-          if (m && map[m[1]]) label = map[m[1]]
-        }
-        // Final fallback: window title is more readable than raw class
-        if (label === key) {
-          const title = (tl.title || "").trim()
-          if (title && title.length < 60) label = title
-        }
-      }
-      out.push({ label: label, cls: cls, appId: aid })
+      out.push({ label: root.candidateLabel(key, tl.title), cls: cls, appId: aid })
     }
     // Stable alphabetical order so the list does not reshuffle after resolve.
     out.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()))
@@ -656,6 +717,8 @@ PanelWindow {
         }
         root.desktopNameMap = map
         root.desktopMapLoading = false
+        // Running-only labels fall back to raw class until this cache lands.
+        if (root.showRunningUnpinned && !root.dragging) root.rebuildModel()
         if (root.pendingPinOpen) {
           root.pendingPinOpen = false
           root.pinCandidates = root.buildPinCandidates()
@@ -708,6 +771,8 @@ PanelWindow {
 
     if (act === "new") {
       Quickshell.execDetached(root.execTokenize(app.cmd))
+    } else if (act === "pin") {
+      Quickshell.execDetached([root.pinTool, "--pin-window", app.appId || app.name])
     } else if (act === "quit") {
       for (const t of root.getToplevelsForApp(app)) {
         let addr = t.toplevel.lastIpcObject?.address
@@ -818,7 +883,20 @@ PanelWindow {
       if (event.name === "windowtitle") {
         root._badgeTick++
       }
+      if (root.showRunningUnpinned
+          && (event.name === "openwindow" || event.name === "closewindow")) {
+        // Hyprland.toplevels may not include the new window yet when the
+        // event arrives; 80ms settles it and coalesces mass close bursts.
+        runningRebuildTimer.restart()
+      }
     }
+  }
+
+  Timer {
+    id: runningRebuildTimer
+    interval: 80
+    repeat: false
+    onTriggered: if (!root.dragging) root.rebuildModel()
   }
 
   Rectangle {
@@ -924,6 +1002,7 @@ PanelWindow {
           required property string matchTitle
           required property string appId
           required property bool minimizable
+          required property bool runningOnly
 
           readonly property var appData: ({
             name: appItem.name,
@@ -932,6 +1011,7 @@ PanelWindow {
             match: appItem.matchTitle,
             appId: appItem.appId,
             minimizable: appItem.minimizable,
+            runningOnly: appItem.runningOnly,
           })
 
           readonly property bool isDragged: root.dragName === appItem.name
@@ -1102,7 +1182,7 @@ PanelWindow {
                   if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
                 }
                 if (!root.workspaceEmpty) root.dockVisible = false
-              } else if (!appItem.busy) {
+              } else if (!appItem.busy && !appItem.runningOnly) {
                 appItem.busy = true
                 Quickshell.execDetached(cmdParts)
               }

@@ -5,6 +5,8 @@ QtObject {
   id: config
 
   property bool showOnFloating: true
+  // Local addition: append running-but-unpinned apps to the bar.
+  property bool showRunningUnpinned: true
 
   property var apps: [
     { name: "Chromium", icon: "chromium", cmd: "chromium", appId: "chromium" },
@@ -20,6 +22,8 @@ QtObject {
       if (obj) {
         if (obj.showOnFloating !== undefined)
           config.showOnFloating = obj.showOnFloating
+        if (obj.showRunningUnpinned !== undefined)
+          config.showRunningUnpinned = obj.showRunningUnpinned
         if (obj.apps !== undefined && obj.apps.length > 0)
           config.apps = obj.apps
         obj.destroy()
