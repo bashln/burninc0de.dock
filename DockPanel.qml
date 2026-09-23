@@ -58,6 +58,10 @@ PanelWindow {
   // UntypedObjectModel has no .find; .values is the QObjectList (JS array).
   readonly property var hlMonitor: Hyprland.monitors.values.find(m => m.name === root.screen?.name)
   readonly property int monitorWsId: hlMonitor && hlMonitor.activeWorkspace ? hlMonitor.activeWorkspace.id : -1
+  // Disk icon index (name → path), same idea as AppLibrary.iconIndex: Qt's
+  // themed lookup misses names like "x", the menu's disk scan does not.
+  property var iconDiskIndex: ({})
+  property var pendingIconDiskIndex: ({})
 
   property bool dockVisible: true
   property bool mouseOverDockArea: triggerHover.hovered || dockHover.hovered || contextHover.hovered || windowMenuHover.hovered || pinMenuHover.hovered || settingsHover.hovered
@@ -639,16 +643,56 @@ PanelWindow {
   }
 
   // Omarchy AppLibrary.iconSource replica (plugin shell.appLibrary is null
-  // without kind "menu"): absolute/file URL → themed → generic executable.
+  // without kind "menu"): absolute/file URL → disk index → themed → generic.
   // Never returns empty, so an Image source can't go blank.
   function entryIconSource(icon) {
     var v = String(icon || "")
     if (v.length === 0) return Quickshell.iconPath("application-x-executable", true)
     if (v.indexOf("file://") === 0 || v.indexOf("image://") === 0) return v
     if (v.charAt(0) === "/") return Util.fileUrl(v)
+    var found = root.iconDiskIndex[v]
+    if (found) return Util.fileUrl(found)
     var themed = Quickshell.iconPath(v, true)
     if (themed && themed.length > 0) return themed
     return Quickshell.iconPath("application-x-executable", true)
+  }
+
+  // Same scan as AppLibrary.iconIndexScanCommand: app/device icons across
+  // XDG icon dirs + /usr/share/pixmaps, SVG lines before PNG so the parser
+  // (first hit per name wins) prefers scalable icons.
+  function iconIndexScanCommand() {
+    return [
+      'dirs="$HOME/.icons $HOME/.local/share/icons";',
+      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
+      'for ext in svg png; do',
+      '  for base in $dirs; do',
+      '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
+      '  done;',
+      '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
+      'done'
+    ].join(' ')
+  }
+
+  function indexIconLine(line) {
+    var file = String(line || "").trim()
+    if (file.length === 0) return
+    var slash = file.lastIndexOf("/")
+    var base = slash >= 0 ? file.slice(slash + 1) : file
+    var dot = base.lastIndexOf(".")
+    var name = dot > 0 ? base.slice(0, dot) : base
+    if (name.length > 0 && root.pendingIconDiskIndex[name] === undefined)
+      root.pendingIconDiskIndex[name] = file
+  }
+
+  Process {
+    id: iconIndexScan
+    command: ["bash", "-c", root.iconIndexScanCommand()]
+    stdout: SplitParser {
+      onRead: function(line) { root.indexIconLine(line) }
+    }
+    onStarted: root.pendingIconDiskIndex = ({})
+    // Swapping the property re-evaluates every entryIconSource() binding.
+    onExited: root.iconDiskIndex = root.pendingIconDiskIndex
   }
 
   // Running apps that no dock icon claims, deduped by class/appId. A toplevel
@@ -925,6 +969,8 @@ PanelWindow {
       root.desktopMapLoading = true
       desktopMapProcess.running = true
     }
+    // Disk icon index so themed misses (e.g. Icon=x) resolve like the menu.
+    if (!iconIndexScan.running) iconIndexScan.running = true
   }
 
   Connections {
