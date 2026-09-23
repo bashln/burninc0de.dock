@@ -416,40 +416,42 @@ resolve_windows() {
 }
 
 dump_map() {
-  # Dump every class/appId → Name mapping the resolver knows about.
-  # Used by the dock to build a one-time cache so pin-menu labels are
-  # synchronous after the first open. First match wins (XDG order).
+  # Dump every class/appId → Name + Icon mapping the resolver knows about.
+  # Used by the dock to build a one-time cache so pin-menu labels and
+  # running-only icons resolve without a flash. First match wins (XDG order).
+  # Columns: key \t Name \t Icon (Icon may be empty).
   declare -A seen=()
-  local dir file name wm exec_bin exec_line host key
+  local dir file name icon wm exec_bin exec_line host key
   while IFS= read -r dir; do
     [[ -d "$dir" ]] || continue
     for file in "$dir"/*.desktop; do
       [[ -e "$file" ]] || continue
       name=$(entry_key "$file" Name)
       [[ -n "$name" ]] || continue
+      icon=$(entry_key "$file" Icon)
       wm=$(entry_key "$file" StartupWMClass)
       [[ $wm == *@@* || $wm == *%* ]] && wm=""
       if [[ -n "$wm" ]]; then
         key="${wm,,}"
-        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\n' "$key" "$name"; }
+        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\t%s\n' "$key" "$name" "$icon"; }
       fi
       exec_bin=$(entry_key "$file" Exec | awk '{print $1}' | sed 's:.*/::')
       if [[ -n "$exec_bin" ]]; then
         key="${exec_bin,,}"
-        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\n' "$key" "$name"; }
+        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\t%s\n' "$key" "$name" "$icon"; }
       fi
       # desktop id itself is often the Wayland appId (chrome-...-Default for Chrome Apps)
       key="$(basename "$file" .desktop | tr '[:upper:]' '[:lower:]')"
-      [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\n' "$key" "$name"; }
+      [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\t%s\n' "$key" "$name" "$icon"; }
       exec_line=$(entry_key "$file" Exec)
       if [[ "$exec_line" =~ https?://([^/[:space:]\":]+) ]]; then
         host="${BASH_REMATCH[1],,}"
         # chrome-host is "chrome-<host>__-Default", match on host substring
         key="$host"
-        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\n' "$key" "$name"; }
+        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\t%s\n' "$key" "$name" "$icon"; }
         # also the full chrome- synthetic class for exact match
         key="chrome-${host}__-default"
-        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\n' "$key" "$name"; }
+        [[ -n ${seen[$key]:-} ]] || { seen[$key]=1; printf '%s\t%s\t%s\n' "$key" "$name" "$icon"; }
       fi
     done
   done < <(desktop_dirs)

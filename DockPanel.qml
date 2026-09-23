@@ -54,6 +54,10 @@ PanelWindow {
   // Local flag: DockApps singleton may survive plugin reloads without new
   // properties — do not depend on cross-file singleton for this.
   property bool showRunningUnpinned: true
+  // Per-instance monitor: QScreen name == Hyprland connector name (HDMI-A-1…).
+  // UntypedObjectModel has no .find; .values is the QObjectList (JS array).
+  readonly property var hlMonitor: Hyprland.monitors.values.find(m => m.name === root.screen?.name)
+  readonly property int monitorWsId: hlMonitor && hlMonitor.activeWorkspace ? hlMonitor.activeWorkspace.id : -1
 
   property bool dockVisible: true
   property bool mouseOverDockArea: triggerHover.hovered || dockHover.hovered || contextHover.hovered || windowMenuHover.hovered || pinMenuHover.hovered || settingsHover.hovered
@@ -374,7 +378,7 @@ PanelWindow {
           pinned: false,
           runningOnly: true,
           name: label,
-          icon: root.pinCandidateIcon({ cls: cls, appId: aid }),
+          icon: root.candidateIcon(key, cls, aid),
           cmd: "",
           matchTitle: "",
           appId: aid || cls,
@@ -427,7 +431,8 @@ PanelWindow {
   }
 
   function checkWorkspaceEmpty() {
-    const wsId = Hyprland.focusedWorkspace?.id
+    // Scoped to THIS dock's monitor, not the globally focused workspace.
+    const wsId = root.monitorWsId
     if (wsId == null) return true
     try {
       const clients = JSON.parse(clientsJson)
@@ -441,7 +446,7 @@ PanelWindow {
   }
 
   function updateWorkspaceEmpty() {
-    const wsId = Hyprland.focusedWorkspace?.id
+    const wsId = root.monitorWsId
     if (wsId == null) return
 
     var hasToplevels = false
@@ -577,11 +582,11 @@ PanelWindow {
     if (map) {
       const lower = key.toLowerCase()
       // Direct class/appId match
-      if (map[lower]) label = map[lower]
+      if (map[lower] && map[lower].name) label = map[lower].name
       else {
         // For chrome-host webapps also try host substring (e.g. google.com)
         const m = lower.match(/chrome-([^_]+)/)
-        if (m && map[m[1]]) label = map[m[1]]
+        if (m && map[m[1]] && map[m[1]].name) label = map[m[1]].name
       }
       // Final fallback: window title is more readable than raw class
       if (label === key) {
@@ -590,6 +595,19 @@ PanelWindow {
       }
     }
     return label
+  }
+
+  // Desktop Icon= for a class/appId via the dump-map cache; falls back to
+  // the chrome-host heuristic then the raw class (iconPath may still miss).
+  function candidateIcon(key, cls, appId) {
+    const map = root.desktopNameMap
+    if (map && key) {
+      const lower = key.toLowerCase()
+      if (map[lower] && map[lower].icon) return map[lower].icon
+      const m = lower.match(/chrome-([^_]+)/)
+      if (m && map[m[1]] && map[m[1]].icon) return map[m[1]].icon
+    }
+    return root.pinCandidateIcon({ cls: cls, appId: appId })
   }
 
   // Running apps that no dock icon claims, deduped by class/appId. A toplevel
@@ -713,7 +731,7 @@ PanelWindow {
         for (const line of this.text.trim().split("\n")) {
           if (!line) continue
           const parts = line.split("\t")
-          if (parts.length >= 2) map[parts[0]] = parts[1]
+          if (parts.length >= 2) map[parts[0]] = { name: parts[1], icon: parts[2] || "" }
         }
         root.desktopNameMap = map
         root.desktopMapLoading = false
@@ -750,7 +768,7 @@ PanelWindow {
         root.pinCandidates = updated
         // Also backfill the cache so next open is instant.
         if (root.desktopNameMap) {
-          for (const k in resolved) root.desktopNameMap[k.toLowerCase()] = resolved[k]
+          for (const k in resolved) root.desktopNameMap[k.toLowerCase()] = { name: resolved[k], icon: "" }
         }
       }
     }
@@ -874,7 +892,8 @@ PanelWindow {
     function onRawEvent(event) {
       if (["workspace", "workspacev2", "activewindow", "activewindowv2",
            "createworkspace", "createworkspacev2",
-            "destroyworkspace", "destroyworkspacev2"].includes(event.name)) {
+            "destroyworkspace", "destroyworkspacev2",
+            "focusedmon", "focusedmonv2", "moveworkspacev2"].includes(event.name)) {
         updateWorkspaceEmpty()
         closeHoverMenu()
         closePinMenu()
@@ -883,20 +902,22 @@ PanelWindow {
       if (event.name === "windowtitle") {
         root._badgeTick++
       }
-      if (root.showRunningUnpinned
-          && (event.name === "openwindow" || event.name === "closewindow")) {
-        // Hyprland.toplevels may not include the new window yet when the
-        // event arrives; 80ms settles it and coalesces mass close bursts.
-        runningRebuildTimer.restart()
+      if (event.name === "openwindow" || event.name === "closewindow") {
+        // Event may arrive before Quickshell registers the toplevel or the
+        // monitor's activeWorkspace updates; 80ms settles and coalesces bursts.
+        stateRefreshTimer.restart()
       }
     }
   }
 
   Timer {
-    id: runningRebuildTimer
+    id: stateRefreshTimer
     interval: 80
     repeat: false
-    onTriggered: if (!root.dragging) root.rebuildModel()
+    onTriggered: {
+      root.updateWorkspaceEmpty()
+      if (root.showRunningUnpinned && !root.dragging) root.rebuildModel()
+    }
   }
 
   Rectangle {
@@ -1130,7 +1151,7 @@ PanelWindow {
                 if (minimizable) {
                   var anyOnCurrent = false
                   var anyOnSpecial = false
-                  var ws = Hyprland.focusedWorkspace?.id
+                  var ws = root.monitorWsId
                   for (var _i = 0; _i < appItem.toplevels.length; _i++) {
                     var tws = appItem.toplevels[_i].toplevel.workspace?.id
                     if (tws === ws) anyOnCurrent = true
@@ -1546,7 +1567,7 @@ PanelWindow {
                 spacing: 8
 
                 Image {
-                  source: modelData.empty ? "" : Quickshell.iconPath(root.pinCandidateIcon(modelData), true)
+                  source: modelData.empty ? "" : Quickshell.iconPath(root.candidateIcon(modelData.cls || modelData.appId, modelData.cls, modelData.appId), true)
                   width: 16
                   height: 16
                   visible: !modelData.empty
