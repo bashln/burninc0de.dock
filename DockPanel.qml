@@ -591,7 +591,7 @@ PanelWindow {
       if (map[lower] && map[lower].name) label = map[lower].name
       else {
         // For chrome-host webapps also try host substring (e.g. google.com)
-        const m = lower.match(/chrome-([^_]+)/)
+        const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
         if (m && map[m[1]] && map[m[1]].name) label = map[m[1]].name
       }
       // Final fallback: window title is more readable than raw class
@@ -610,7 +610,7 @@ PanelWindow {
     if (map && key) {
       const lower = key.toLowerCase()
       if (map[lower] && map[lower].icon) return map[lower].icon
-      const m = lower.match(/chrome-([^_]+)/)
+      const m = lower.match(/-([a-z0-9.-]+.[a-z]+)__/)
       if (m && map[m[1]] && map[m[1]].icon) return map[m[1]].icon
     }
     return root.pinCandidateIcon({ cls: cls, appId: appId })
@@ -738,7 +738,7 @@ PanelWindow {
     const raw = entry.cls || entry.appId || ""
     if (!raw) return ""
     const lower = raw.toLowerCase()
-    const m = lower.match(/chrome-([^_]+)/)
+    const m = lower.match(/-([a-z0-9.-]+.[a-z]+)__/)
     if (m) {
       const host = m[1]
       const parts = host.split(".")
