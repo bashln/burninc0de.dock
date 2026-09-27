@@ -66,8 +66,9 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
   entries and restores that specific window, because `hl.dsp.focus` alone only targets a window on a hidden workspace
 - Moving a window between workspaces does **not** change `Hyprland.toplevels` membership, so `_stateTick` (bumped on
   `movewindow`/`workspace`/`activewindow` events) is what re-evaluates `appItem.toplevels`/`parkedWindows`
-- Any external helper that parks windows (the author's `SUPER+A` script) must build the same `special:dm_` names. The
-  old `SUPER+SHIFT+A` "show all minimized" toggle is intentionally gone — the dock is the restore surface
+- Any external helper that parks windows (the author's `SUPER+A` minimize script) must build the same `special:dm_`
+  names. A sibling `minimize-restore.sh` (`SUPER+SHIFT+A`) brings back the most recently minimized window by taking
+  the largest special-workspace id. There is still no show-all bind — restores are one window at a time
 
 ## Key conventions
 
