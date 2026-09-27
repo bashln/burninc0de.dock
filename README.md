@@ -52,8 +52,8 @@ omarchy plugin enable burninc0de.dock    # bring it back
 omarchy plugin remove burninc0de.dock    # delete it
 ```
 
-Uninstalling leaves your data alone: pins, drag order and removed apps live in
-`~/.local/state/omarchy/burninc0de.dock/` (`pins.json`, `order.json`, `hidden.json`), so reinstalling puts everything back
+Uninstalling leaves your data alone: pins, drag order, removed apps and dock settings live in
+`~/.local/state/omarchy/burninc0de.dock/` (`pins.json`, `order.json`, `hidden.json`, `settings.json`), so reinstalling puts everything back
 exactly as it was. Delete that folder for a factory reset. If you are updating from an older version that used
 `~/.local/state/quickshelldock/`, your data is migrated automatically on first launch.
 
@@ -79,8 +79,8 @@ the script into `~/.local/bin` to have it on `PATH`.
 
 **Unpinning and restoring.** Unpin works on every icon, wherever it came from. Apps pinned with the tool are dropped from `pins.json`; apps
 declared in `UserConfig.qml` are recorded in `hidden.json` instead, because rewriting your hand-written QML isn't the
-dock's business. A hidden app isn't on the dock any more, so bring it back with `--restore-pick` (or the
-`Dock › Restore removed app` menu row):
+dock's business. A hidden app isn't on the dock any more, so bring it back with `--restore-pick` (an Omarchy menu
+picker) or `--restore <name>`:
 
 ```sh
 bin/quickshelldock-pin --list-hidden
@@ -128,8 +128,9 @@ When `true`, workspaces that contain only floating windows are treated as empty 
 ### Hover window list
 
 Hovering an icon whose app has **two or more** windows open pops a small list of them after a short delay. Clicking
-an entry focuses that window and hides the dock, same as clicking the icon itself does. Single-window apps skip the
-list — clicking the icon goes straight to the window.
+an entry focuses that window and hides the dock, same as clicking the icon itself does; if the window is minimized,
+clicking it restores it to the current workspace first. Minimized windows are marked with a dot. Single-window apps
+skip the list — clicking the icon goes straight to the window.
 
 ### Reordering
 
@@ -152,9 +153,17 @@ in `DockPanel.qml` if you want reordering to snap too.
 
 ### Minimize / Restore
 
-Since Hyprland has no native minimize, clicking a running app's dock icon hides it on the `special:dock_minimize` scratchpad workspace. Clicking again restores it to the current workspace.
+Since Hyprland has no native minimize, clicking a running app's dock icon hides it. Each window is parked in its own
+special workspace, named after the app (`special:dm_chromium`, `special:dm_chromium_2`, ...), so minimized windows
+never pile up on one shared scratchpad.
 
-This works for any app that has toplevels on the current workspace. Apps on other (non-special) workspaces are focused normally. Set `minimizable: false` per app to disable this behavior.
+Clicking the icon again restores the **most recently minimized** window to the current workspace and focuses it;
+clicking again restores the next. The dock icon dims while every window of the app is parked, and the
+hover window list marks parked windows so a specific one can be restored directly.
+
+This works for any app that has toplevels on the current workspace. Apps on other workspaces are focused normally.
+Set `minimizable: false` per app to disable this behavior. Windows parked by older versions on
+`special:dock_minimize` are still recognized and restored.
 
 ### Badges
 

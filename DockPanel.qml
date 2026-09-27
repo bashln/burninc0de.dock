@@ -55,6 +55,28 @@ PanelWindow {
   property string clientsJson: ""
   property int _badgeTick: 0
 
+  // Bumped on Hyprland events that move a window between workspaces. The
+  // toplevel list itself is unchanged by a move, so bindings that inspect a
+  // window's workspace (the minimized indicator) need this to re-evaluate.
+  property int _stateTick: 0
+
+  // Addresses of windows the dock minimized, most recent first. Only used to
+  // order restores: whether a window is minimized is always derived from its
+  // workspace, so windows parked by the SUPER+A script or before a restart
+  // are still recognized.
+  property var minimizeOrder: []
+
+  // Minimized windows are parked in their own special workspace, named after
+  // the window's app (dm_chromium, dm_chromium_2, ...) so they never pile up
+  // on one shared scratchpad and a stray `hyprctl workspaces` stays readable.
+  // The prefix is also how the dock tells its own hiding spots apart from the
+  // user's own special workspaces (scratchpad, silent, ...), which a bare
+  // `workspace.id < 0` test conflates. The unprefixed name is the older
+  // shared scratchpad, still recognized so windows parked before this change
+  // can be restored.
+  readonly property string minimizeWsPrefix: "special:dm_"
+  readonly property string legacyMinimizeWs: "special:dock_minimize"
+
   // Byte ceilings for everything whose length the dock doesn't control:
   // state files are user-writable and hyprctl output scales with open
   // windows, so neither may reach this long-lived process unbounded. Both
@@ -494,6 +516,76 @@ PanelWindow {
     return results
   }
 
+  // Address string for a toplevel, tolerating the two shapes Quickshell
+  // exposes (IPC address and the raw QObject address). "" means unusable.
+  function windowAddress(toplevel) {
+    let addr = toplevel?.lastIpcObject?.address
+    if (!addr || addr === "0") addr = "0x" + (toplevel?.address ?? "")
+    if (!addr || addr === "0x" || addr === "0x0") return ""
+    return addr
+  }
+
+  // A readable, socket-safe token for a window's app. Hyprland workspace
+  // names don't take arbitrary punctuation, so everything outside [a-z0-9]
+  // collapses to "_". The caps keep a runaway class short.
+  function appTokenFor(toplevel) {
+    const raw = (toplevel?.lastIpcObject?.class || toplevel?.wayland?.appId || "").toLowerCase()
+    const token = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+    return (token || "window").slice(0, 32).replace(/_+$/g, "")
+  }
+
+  // Special workspaces currently holding a parked window. Used to hand each
+  // window of an app a distinct human-readable slot instead of an address.
+  function usedMinimizeWorkspaces() {
+    const used = []
+    for (const tl of Hyprland.toplevels.values) {
+      const name = tl.workspace?.name ?? ""
+      if (name.startsWith(minimizeWsPrefix)) used.push(name)
+    }
+    return used
+  }
+
+  function minimizeWorkspaceFor(toplevel, usedNames) {
+    const base = minimizeWsPrefix + appTokenFor(toplevel)
+    const used = usedNames ?? []
+    if (used.indexOf(base) < 0) return base
+    for (let i = 2; i < 1000; i++) {
+      const candidate = base + "_" + i
+      if (used.indexOf(candidate) < 0) return candidate
+    }
+    // Practically unreachable; fall back to the address for uniqueness.
+    const addr = windowAddress(toplevel)
+    return addr ? base + "_" + addr.replace(/^0x/, "") : base
+  }
+
+  function isMinimized(toplevel) {
+    const name = toplevel?.workspace?.name ?? ""
+    return name.startsWith(minimizeWsPrefix) || name === legacyMinimizeWs
+  }
+
+  function noteMinimized(address) {
+    if (!address) return
+    minimizeOrder = [address].concat(minimizeOrder.filter(a => a !== address)).slice(0, 64)
+  }
+
+  function forgetMinimized(address) {
+    if (!address) return
+    minimizeOrder = minimizeOrder.filter(a => a !== address)
+  }
+
+  // Minimized windows, most recently minimized first. The dock's in-memory
+  // order wins; anything it did not minimize falls back to the special
+  // workspace id, which Hyprland assigns monotonically *increasing* as
+  // workspaces are created (verified: -98 then -97), so a larger id is a
+  // newer park.
+  function minimizedWindows(toplevels) {
+    const rank = (t) => {
+      const i = minimizeOrder.indexOf(windowAddress(t.toplevel))
+      return i >= 0 ? i : (1000 - (t.toplevel?.workspace?.id ?? 0))
+    }
+    return toplevels.filter(t => isMinimized(t.toplevel)).sort((a, b) => rank(a) - rank(b))
+  }
+
   function openContextMenu(item) {
     if (root.contextOpen && root.contextKey === (item.entryId || item.name)) {
       root.closeContextMenu()
@@ -725,8 +817,16 @@ PanelWindow {
     }
   }
 
-  function focusWindow(address) {
+  // Focus a window, restoring it to the focused workspace first if it is
+  // parked on a dock minimize workspace. Focusing alone would target a
+  // window on a hidden workspace, which is not a restore.
+  function focusWindow(address, minimized) {
     if (!address || address === "0x0") return
+    if (minimized) {
+      const ws = Hyprland.focusedWorkspace?.id
+      forgetMinimized(address)
+      Hyprland.dispatch('hl.dsp.window.move({ workspace = ' + (ws ?? 1) + ', window = "address:' + address + '" })')
+    }
     Hyprland.dispatch('hl.dsp.focus({ window = "address:' + address + '" })')
   }
 
@@ -814,6 +914,10 @@ PanelWindow {
         closeHoverMenu()
         closePinMenu()
         closeSettings()
+      }
+      if (["workspace", "workspacev2", "activewindow", "activewindowv2",
+           "movewindow", "movewindowv2"].includes(event.name)) {
+        root._stateTick++
       }
       if (event.name === "windowtitle") {
         root._badgeTick++
@@ -959,8 +1063,18 @@ PanelWindow {
             onTriggered: appItem.busy = false
           }
 
-          readonly property var toplevels: root.getToplevelsForApp(appItem.appData)
+          readonly property var toplevels: {
+            // Re-evaluate when Hyprland reports a window moving between
+            // workspaces; the toplevel list alone is unchanged by a move.
+            var _ = root._stateTick
+            return root.getToplevelsForApp(appItem.appData)
+          }
           readonly property bool isRunning: toplevels.length > 0
+          // Minimized windows of this app, most recently minimized first.
+          readonly property var parkedWindows: root.minimizedWindows(toplevels)
+          // Every window parked → the icon reads as "minimized" rather than
+          // "running on this workspace".
+          readonly property bool allMinimized: isRunning && parkedWindows.length === toplevels.length
           readonly property int pid: isRunning ? toplevels[0].pid : 0
           readonly property int unreadCount: {
             var _ = root._badgeTick
@@ -976,7 +1090,8 @@ PanelWindow {
                   root.hoverMenuKey = appItem.name
                   root.hoverMenuWindows = appItem.toplevels.map(t => ({
                     title: t.toplevel.title || appItem.name,
-                    address: t.toplevel.lastIpcObject?.address || ("0x" + t.toplevel.address)
+                    address: root.windowAddress(t.toplevel),
+                    minimized: root.isMinimized(t.toplevel)
                   }))
                   root.hoverMenuAnchorX = row.mapFromItem(appItem, appItem.width / 2, 0).x
                   hoverDelayTimer.restart()
@@ -1046,56 +1161,49 @@ PanelWindow {
               }
               var cmdParts = root.execTokenize(appItem.cmd)
               if (appItem.isRunning) {
-                var minimizable = appItem.minimizable
-                if (minimizable) {
-                  var anyOnCurrent = false
-                  var anyOnSpecial = false
+                if (appItem.minimizable) {
                   var ws = Hyprland.focusedWorkspace?.id
+
+                  var onCurrent = []
                   for (var _i = 0; _i < appItem.toplevels.length; _i++) {
                     var tws = appItem.toplevels[_i].toplevel.workspace?.id
-                    if (tws === ws) anyOnCurrent = true
-                    if (tws != null && tws < 0) anyOnSpecial = true
+                    if (tws === ws) onCurrent.push(appItem.toplevels[_i].toplevel)
                   }
 
-                  if (anyOnCurrent) {
-                    for (var _j = 0; _j < appItem.toplevels.length; _j++) {
-                      var tl = appItem.toplevels[_j].toplevel
-                      if (tl.workspace?.id !== ws) continue
-                      var addr = tl.lastIpcObject?.address
-                      if (!addr || addr === "0") addr = "0x" + tl.address
-                      if (addr && addr !== "0x0") {
-                        Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:dock_minimize", follow = false, window = "address:' + addr + '" })')
-                      }
+                  // Windows on this workspace → park each one in its own
+                  // hidden special workspace, so minimizing never piles them
+                  // together the way one shared scratchpad did. Names are
+                  // app-based, so two windows of the same app get _2, _3.
+                  if (onCurrent.length > 0) {
+                    const usedNames = root.usedMinimizeWorkspaces()
+                    for (var _j = 0; _j < onCurrent.length; _j++) {
+                      const minWs = root.minimizeWorkspaceFor(onCurrent[_j], usedNames)
+                      const minAddr = root.windowAddress(onCurrent[_j])
+                      if (!minAddr) continue
+                      usedNames.push(minWs)
+                      root.noteMinimized(minAddr)
+                      Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + minWs + '", follow = false, window = "address:' + minAddr + '" })')
                     }
                     if (!root.workspaceEmpty) root.dockVisible = false
                     return
                   }
 
-                  if (anyOnSpecial) {
-                    for (var _k = 0; _k < appItem.toplevels.length; _k++) {
-                      var tl = appItem.toplevels[_k].toplevel
-                      if (tl.workspace?.id == null || tl.workspace.id >= 0) continue
-                      var addr = tl.lastIpcObject?.address
-                      if (!addr || addr === "0") addr = "0x" + tl.address
-                      if (addr && addr !== "0x0") {
-                        Hyprland.dispatch('hl.dsp.window.move({ workspace = ' + (ws ?? 1) + ', window = "address:' + addr + '" })')
-                      }
+                  // Nothing here but something parked → bring back the most
+                  // recently minimized window, not the whole pile.
+                  if (appItem.parkedWindows.length > 0) {
+                    var restoreAddr = root.windowAddress(appItem.parkedWindows[0].toplevel)
+                    if (restoreAddr) {
+                      root.forgetMinimized(restoreAddr)
+                      Hyprland.dispatch('hl.dsp.window.move({ workspace = ' + (ws ?? 1) + ', window = "address:' + restoreAddr + '" })')
+                      Hyprland.dispatch('hl.dsp.focus({ window = "address:' + restoreAddr + '" })')
                     }
-                    var addr = appItem.toplevels[0].toplevel.lastIpcObject?.address
-                    if (!addr || addr === "0") addr = "0x" + appItem.toplevels[0].toplevel.address
-                    if (addr && addr !== "0x0") {
-                      Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
-                    } else {
-                      var cls = appItem.toplevels[0].toplevel.lastIpcObject?.class
-                      if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
-                    }
+                    if (!root.workspaceEmpty) root.dockVisible = false
                     return
                   }
                 }
 
-                var addr = appItem.toplevels[0].toplevel.lastIpcObject?.address
-                if (!addr || addr === "0") addr = "0x" + appItem.toplevels[0].toplevel.address
-                if (addr && addr !== "0x0") {
+                var addr = root.windowAddress(appItem.toplevels[0].toplevel)
+                if (addr) {
                   Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
                 } else {
                   var cls = appItem.toplevels[0].toplevel.lastIpcObject?.class
@@ -1133,6 +1241,10 @@ PanelWindow {
             height: 4
             radius: 2
             color: Color.bar.text
+            // Dimmed while every window is parked, so "minimized" reads
+            // differently from "running on this workspace".
+            opacity: appItem.allMinimized ? 0.4 : 1
+            Behavior on opacity { NumberAnimation { duration: 150 } }
           }
 
           Rectangle {
@@ -1339,23 +1451,37 @@ PanelWindow {
             TapHandler {
               acceptedButtons: Qt.LeftButton
               onSingleTapped: {
-                root.focusWindow(modelData.address)
+                root.focusWindow(modelData.address, modelData.minimized)
                 root.closeHoverMenu()
                 if (!root.workspaceEmpty) root.dockVisible = false
               }
             }
 
-            Text {
+            // Parked windows get a dot in a fixed gutter so titles stay
+            // aligned whether or not the marker is present.
+            Rectangle {
+              visible: modelData.minimized
               anchors.verticalCenter: parent.verticalCenter
               x: 8
+              width: 5
+              height: 5
+              radius: 2.5
+              color: Color.menu.text
+              opacity: 0.5
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              x: 20
               text: modelData.title
               // Titles are app-controlled; AutoText would sniff markup and
               // let <img> etc. pull resources into the shell.
               textFormat: Text.PlainText
               color: Color.menu.text
+              opacity: modelData.minimized ? 0.65 : 1
               font.pixelSize: 12
               elide: Text.ElideRight
-              width: parent.width - 16
+              width: parent.width - 28
             }
           }
         }

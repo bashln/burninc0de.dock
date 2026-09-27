@@ -5,7 +5,7 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
 ## Structure
 
 - `Dock.qml` — entrypoint, instantiates `DockPanel` per screen via `Variants`
-- `DockPanel.qml` — the dock UI: auto-hide, launch debounce (`busy` per icon, cleared when a matching toplevel appears), Hyprland toplevel matching, window focus
+- `DockPanel.qml` — the dock UI: auto-hide, launch debounce (`busy` per icon, cleared when a matching toplevel appears), Hyprland toplevel matching, window focus, minimize/restore
 - `config/DockApps.qml` — singleton defining the ordered app list (name, icon, cmd, optional `match`)
 
 ## Pinning
@@ -49,6 +49,25 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
 - Pointer positions are read from `centroid.scenePosition` and mapped with `row.mapFromItem(null, ...)`;
   `centroid.position` is self-referential once the item carries a drag transform
 - `TapHandler.gesturePolicy: DragThreshold` is what stops a drag from also launching the app
+
+## Minimize
+
+- Each minimized window is parked in its own special workspace, named after the app (`special:dm_<app>`,
+  `special:dm_<app>_2`, ... via `minimizeWsPrefix` + `appTokenFor`), so they never share one scratchpad. The token is
+  the window's sanitized class/appId, so it stays readable; the numeric suffix is only for extra windows of one app.
+  Hyprland removes empty special workspaces, so one-window-per-workspace does not accumulate
+- Whether a window is minimized is derived from its **workspace name**, never `workspace.id < 0` — the negative-id
+  test also matches the user's own special workspaces (`scratchpad`, `silent`, ...), which made minimize/restore
+  grab those windows. The old shared `special:dock_minimize` is still accepted (`legacyMinimizeWs`) so windows
+  parked before the change can be restored
+- Icon click with windows on the current workspace parks all of them; with none, it restores the **most recently
+  minimized** one (`minimizeOrder`, falling back to the special-workspace id, which Hyprland assigns monotonically
+  increasing (toward zero), so a larger id is newer). The hover list is the per-window taskbar: it marks parked
+  entries and restores that specific window, because `hl.dsp.focus` alone only targets a window on a hidden workspace
+- Moving a window between workspaces does **not** change `Hyprland.toplevels` membership, so `_stateTick` (bumped on
+  `movewindow`/`workspace`/`activewindow` events) is what re-evaluates `appItem.toplevels`/`parkedWindows`
+- Any external helper that parks windows (the author's `SUPER+A` script) must build the same `special:dm_` names. The
+  old `SUPER+SHIFT+A` "show all minimized" toggle is intentionally gone — the dock is the restore surface
 
 ## Key conventions
 
