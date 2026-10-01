@@ -77,12 +77,12 @@ PanelWindow {
   // magnification slots line up with the unmagnified icons.
   readonly property real separatorWidth: 1
   readonly property real trashWidth: itemSize
+  // A "spacer" entry (a config app with `spacer: true`) renders as a fixed gap
+  // to group icons macOS-style. Its width is tunable from the Settings panel.
+  property real spacerWidth: 24
   // Glass translucency derived from the theme's bar alpha (clamped so it stays
   // a glass surface even with an opaque theme, without going invisible).
   readonly property real glassAlpha: Math.max(0.35, Math.min(0.75, Color.bar.background.a))
-  readonly property real baseContentWidth: appModel.count > 0
-    ? appModel.count * itemSize + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
-    : separatorWidth + trashWidth + itemSpacing
   // Local flag: DockApps singleton may survive plugin reloads without new
   // properties — do not depend on cross-file singleton for this.
   property bool showRunningUnpinned: true
@@ -291,8 +291,10 @@ PanelWindow {
   function applySettings(s) {
     const size = Math.round(Number(s.iconSize))
     const spacing = Math.round(Number(s.spacing))
+    const spacer = Math.round(Number(s.spacerWidth))
     if (!isNaN(size)) itemSize = Math.max(32, Math.min(96, size))
     if (!isNaN(spacing)) itemSpacing = Math.max(0, Math.min(48, spacing))
+    if (!isNaN(spacer)) spacerWidth = Math.max(0, Math.min(96, spacer))
     // `mode` wins; legacy hideOnEmpty maps to the closest mode.
     if (typeof s.mode === "string" && ["always", "autohide", "smart"].indexOf(s.mode) >= 0)
       dockMode = s.mode
@@ -305,7 +307,7 @@ PanelWindow {
 
   function persistSettings() {
     settingsFile.setText(JSON.stringify(
-      { iconSize: itemSize, spacing: itemSpacing, mode: dockMode, magnify: magnifyEnabled }, null, 2) + "\n")
+      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled }, null, 2) + "\n")
   }
 
   // Write-only handle for drag order. Never loaded, so nothing from disk is
@@ -367,6 +369,7 @@ PanelWindow {
       appId: app.appId ?? "",
       minimizable: app.minimizable !== false,
       runningOnly: false,
+      spacer: app.spacer === true,
     }
   }
 
@@ -427,6 +430,7 @@ PanelWindow {
           matchTitle: "",
           appId: aid || cls,
           minimizable: true,
+          spacer: false,
         })
       }
     }
@@ -572,6 +576,8 @@ PanelWindow {
   }
 
   function getToplevelsForApp(app) {
+    // Spacers never match a window; an empty cmd would otherwise match all.
+    if (app.spacer) return []
     let results = []
     for (const tl of Hyprland.toplevels.values) {
       let matched = false
@@ -585,7 +591,7 @@ PanelWindow {
         // Class fallback: XWayland windows often report an empty wayland appId,
         // and running-only entries key on class.
         if (appId.includes(needle) || cls.includes(needle)) matched = true
-      } else {
+      } else if (app.cmd) {
         const exe = root.execTokenize(app.cmd)[0].split("/").pop().replace(/\.[^/.]+$/, "").toLowerCase()
         const appId = (tl.wayland?.appId ?? "").toLowerCase()
         const cls = (tl.lastIpcObject?.class ?? "").toLowerCase()
@@ -947,11 +953,26 @@ PanelWindow {
   // can't move its own target and oscillate. Apps are the leading Row children,
   // so app `i`'s base centre is `i*itemPitch + itemSize/2` from the content's
   // left edge, and the content is centered in the window.
+  // Base (unmagnified) width of appModel row `i` — spacers render narrower.
+  function appBaseWidth(i) {
+    return appModel.get(i).spacer ? spacerWidth : itemSize
+  }
+
+  // Total base width of the Row: every app/spacer + the separator + trash,
+  // with one itemSpacing between each adjacent pair.
+  function baseContentWidth() {
+    let w = 0
+    for (let i = 0; i < appModel.count; i++) w += appBaseWidth(i)
+    return w + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
+  }
+
   function magnifyForIndex(i) {
     if (!magnifyActive || appModel.count === 0) return 1
-    const baseLeft = root.width / 2 - baseContentWidth / 2
-    const cursor = cursorSceneX - baseLeft
-    const dist = Math.abs(cursor - (i * itemPitch + itemSize / 2))
+    if (appModel.get(i).spacer) return 1
+    const baseLeft = root.width / 2 - baseContentWidth() / 2
+    let off = 0
+    for (let j = 0; j < i; j++) off += appBaseWidth(j) + itemSpacing
+    const dist = Math.abs(cursorSceneX - (baseLeft + off + itemSize / 2))
     if (dist >= magnifyRadius) return 1
     const t = 1 - dist / magnifyRadius
     return 1 + (magnifyMaxScale - 1) * t * t
@@ -1198,6 +1219,7 @@ PanelWindow {
           required property string appId
           required property bool minimizable
           required property bool runningOnly
+          required property bool spacer
 
           readonly property var appData: ({
             name: appItem.name,
@@ -1207,13 +1229,14 @@ PanelWindow {
             appId: appItem.appId,
             minimizable: appItem.minimizable,
             runningOnly: appItem.runningOnly,
+            spacer: appItem.spacer,
           })
 
           readonly property bool isDragged: root.dragName === appItem.name
-          readonly property real magnifyScale: root.magnifyForIndex(appItem.index)
+          readonly property real magnifyScale: appItem.spacer ? 1 : root.magnifyForIndex(appItem.index)
 
-          width: Math.round(root.itemSize * magnifyScale)
-          height: width
+          width: appItem.spacer ? root.spacerWidth : Math.round(root.itemSize * magnifyScale)
+          height: appItem.spacer ? 1 : width
           z: isDragged ? 10 : 0
           Behavior on width { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
@@ -1256,6 +1279,7 @@ PanelWindow {
 
           HoverHandler {
             id: itemHover
+            enabled: !appItem.spacer
             onHoveredChanged: {
               if (hovered) {
                 // Switching icons must drop the previous icon's window list:
@@ -1284,6 +1308,7 @@ PanelWindow {
           }
 
           Rectangle {
+            visible: !appItem.spacer
             anchors.fill: parent
             anchors.margins: 2
             radius: 12
@@ -1296,6 +1321,7 @@ PanelWindow {
             id: dragHandler
             target: null
             yAxis.enabled: false
+            enabled: !appItem.spacer
 
             onActiveChanged: {
               if (active) {
@@ -1322,6 +1348,7 @@ PanelWindow {
 
           TapHandler {
             acceptedButtons: Qt.RightButton
+            enabled: !appItem.spacer
             gesturePolicy: TapHandler.ReleaseWithinBounds
             onSingleTapped: {
               root.closeHoverMenu()
@@ -1331,6 +1358,7 @@ PanelWindow {
 
           TapHandler {
             acceptedButtons: Qt.LeftButton
+            enabled: !appItem.spacer
             // Releases the press to the DragHandler once the pointer moves
             // past the drag threshold, so a drag never fires a launch.
             gesturePolicy: TapHandler.DragThreshold
@@ -1411,6 +1439,7 @@ PanelWindow {
 
           Image {
             id: iconImg
+            visible: !appItem.spacer
             anchors.centerIn: parent
             // Rides the magnified item size (54 → 40 keeps the original look)
             // and the launch bounce.
@@ -1423,7 +1452,7 @@ PanelWindow {
           }
 
           Rectangle {
-            visible: appItem.isRunning
+            visible: appItem.isRunning && !appItem.spacer
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: -6
@@ -1435,7 +1464,7 @@ PanelWindow {
           }
 
           Rectangle {
-            visible: appItem.unreadCount > 0
+            visible: appItem.unreadCount > 0 && !appItem.spacer
             anchors.top: parent.top
             anchors.topMargin: -4
             anchors.right: parent.right
@@ -2120,6 +2149,72 @@ PanelWindow {
           }
         }
 
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Spacer width"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: spacerSlider.value + " px"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: spacerSlider
+            width: parent.width
+            from: 0
+            to: 96
+            stepSize: 2
+            value: root.spacerWidth
+            onMoved: {
+              root.spacerWidth = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: spacerSlider.leftPadding
+              y: spacerSlider.topPadding + spacerSlider.availableHeight / 2 - height / 2
+              width: spacerSlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: spacerSlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: spacerSlider.leftPadding + spacerSlider.visualPosition * spacerSlider.availableWidth - width / 2
+              y: spacerSlider.topPadding + spacerSlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
+            }
+          }
+        }
+
         Text {
           text: "Visibility"
           textFormat: Text.PlainText
@@ -2262,6 +2357,7 @@ PanelWindow {
             onSingleTapped: {
               root.itemSize = root.defaultItemSize
               root.itemSpacing = root.defaultItemSpacing
+              root.spacerWidth = 24
               root.dockMode = "always"
               root.magnifyEnabled = true
               root.persistSettings()
