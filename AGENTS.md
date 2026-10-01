@@ -75,7 +75,8 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
   Default is `"always"`; the Settings panel exposes all three.
 - Hover magnification: `magnifyForIndex()` scales each app icon by distance from the cursor slot, computed against the
   *base* (unmagnified) layout so growing icons can't move their own target and oscillate. `baseContentWidth` includes
-  the trailing separator + trash so the slots line up. Magnification is disabled while dragging or with menus open.
+  the trailing separator + trash so the slots line up. Magnification is disabled only while dragging (menus must not
+  disable it, or hovering a multi-window icon collapses the effect when its window list opens).
 - Name bubble (`appLabel`) above the hovered single-window icon; multi-window apps still show the window list.
 - Launch bounce: `bounceOffset` SequentialAnimation while `busy`.
 - Trailing separator + trash are Row children (kept in the base-layout math); trash opens `nautilus trash:///`.

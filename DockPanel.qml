@@ -59,13 +59,14 @@ PanelWindow {
   //   "autohide" hidden — reveals on bottom-edge hover (macOS auto-hide)
   //   "smart"    visible on empty workspaces only (previous behaviour)
   property string dockMode: "always"
-  // macOS-style hover magnification. Off while dragging or with menus open so
-  // the reorder math (itemPitch) and menu anchors stay stable.
+  // macOS-style hover magnification. Only off while dragging, so the reorder
+  // math (itemPitch) stays stable — menus must NOT disable it, otherwise
+  // hovering a multi-window icon (which opens the window list) collapses the
+  // magnification.
   property real cursorSceneX: -10000
   readonly property real magnifyMaxScale: 1.6
   readonly property real magnifyRadius: itemSize * 2.6
   readonly property bool magnifyActive: dockHover.hovered && !dragging
-    && !contextOpen && !hoverMenuOpen && !pinMenuOpen && !settingsOpen
   // Name bubble above the hovered icon (single-window apps; multi-window apps
   // show the window list instead).
   property string hoverName: ""
