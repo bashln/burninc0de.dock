@@ -50,7 +50,29 @@ PanelWindow {
   property int itemSize: defaultItemSize
   property int itemSpacing: defaultItemSpacing
   readonly property real itemPitch: itemSize + itemSpacing
-  property bool hideOnEmpty: false
+  // Visibility mode:
+  //   "always"   fixed — never hides (macOS dock with auto-hide off)
+  //   "autohide" hidden — reveals on bottom-edge hover (macOS auto-hide)
+  //   "smart"    visible on empty workspaces only (previous behaviour)
+  property string dockMode: "always"
+  // macOS-style hover magnification. Off while dragging or with menus open so
+  // the reorder math (itemPitch) and menu anchors stay stable.
+  property real cursorSceneX: -10000
+  readonly property real magnifyMaxScale: 1.6
+  readonly property real magnifyRadius: itemSize * 2.6
+  readonly property bool magnifyActive: dockHover.hovered && !dragging
+    && !contextOpen && !hoverMenuOpen && !pinMenuOpen && !settingsOpen
+  // Name bubble above the hovered icon (single-window apps; multi-window apps
+  // show the window list instead).
+  property string hoverName: ""
+  property real hoverNameAnchorX: 0
+  // Trailing separator + trash geometry. Kept in the base-layout math so the
+  // magnification slots line up with the unmagnified icons.
+  readonly property real separatorWidth: 1
+  readonly property real trashWidth: itemSize
+  readonly property real baseContentWidth: appModel.count > 0
+    ? appModel.count * itemSize + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
+    : separatorWidth + trashWidth + itemSpacing
   // Local flag: DockApps singleton may survive plugin reloads without new
   // properties — do not depend on cross-file singleton for this.
   property bool showRunningUnpinned: true
@@ -261,13 +283,18 @@ PanelWindow {
     const spacing = Math.round(Number(s.spacing))
     if (!isNaN(size)) itemSize = Math.max(32, Math.min(96, size))
     if (!isNaN(spacing)) itemSpacing = Math.max(0, Math.min(48, spacing))
-    if (typeof s.hideOnEmpty === "boolean") hideOnEmpty = s.hideOnEmpty
-    else if (typeof s.hideOnEmptyWorkspace === "boolean") hideOnEmpty = s.hideOnEmptyWorkspace
+    // `mode` wins; legacy hideOnEmpty maps to the closest mode.
+    if (typeof s.mode === "string" && ["always", "autohide", "smart"].indexOf(s.mode) >= 0)
+      dockMode = s.mode
+    else if (typeof s.hideOnEmpty === "boolean")
+      dockMode = s.hideOnEmpty ? "autohide" : "smart"
+    else if (typeof s.hideOnEmptyWorkspace === "boolean")
+      dockMode = s.hideOnEmptyWorkspace ? "autohide" : "smart"
   }
 
   function persistSettings() {
     settingsFile.setText(JSON.stringify(
-      { iconSize: itemSize, spacing: itemSpacing, hideOnEmpty: hideOnEmpty }, null, 2) + "\n")
+      { iconSize: itemSize, spacing: itemSpacing, mode: dockMode }, null, 2) + "\n")
   }
 
   // Write-only handle for drag order. Never loaded, so nothing from disk is
@@ -870,7 +897,7 @@ PanelWindow {
     const key = entry.cls || entry.appId
     if (!key) return
     Quickshell.execDetached([root.pinTool, "--pin-window", key])
-    if (!root.workspaceEmpty || root.hideOnEmpty) root.dockVisible = false
+    root.maybeHideAfterAction()
   }
 
   function runContextAction(act) {
@@ -895,7 +922,7 @@ PanelWindow {
       Quickshell.execDetached([root.pinTool, "--unpin", root.contextKey])
       // The icon is gone and the pointer sits on now-empty bar; without this
       // the hover handoff keeps the dock up indefinitely.
-      if (!root.workspaceEmpty || root.hideOnEmpty) root.dockVisible = false
+      root.maybeHideAfterAction()
     }
   }
 
@@ -904,14 +931,40 @@ PanelWindow {
     Hyprland.dispatch('hl.dsp.focus({ window = "address:' + address + '" })')
   }
 
+  // macOS-style magnification: scale falls off with distance from the cursor
+  // slot. Computed against the *base* (unmagnified) layout so a growing icon
+  // can't move its own target and oscillate. Apps are the leading Row children,
+  // so app `i`'s base centre is `i*itemPitch + itemSize/2` from the content's
+  // left edge, and the content is centered in the window.
+  function magnifyForIndex(i) {
+    if (!magnifyActive || appModel.count === 0) return 1
+    const baseLeft = root.width / 2 - baseContentWidth / 2
+    const cursor = cursorSceneX - baseLeft
+    const dist = Math.abs(cursor - (i * itemPitch + itemSize / 2))
+    if (dist >= magnifyRadius) return 1
+    const t = 1 - dist / magnifyRadius
+    return 1 + (magnifyMaxScale - 1) * t * t
+  }
+
   function showDockBar() {
     hideTimer.stop()
     dockVisible = true
   }
 
   function scheduleHide() {
-    if (workspaceEmpty && !hideOnEmpty) return
+    if (dockMode === "always") return
     hideTimer.restart()
+  }
+
+  // After focusing/launching/unpinning: drop the dock when the mode calls for
+  // it, using the same rules as the hide timer.
+  function maybeHideAfterAction() {
+    if (dockMode === "always") return
+    if (dockMode === "autohide") {
+      if (!root.mouseOverDockArea) root.dockVisible = false
+      return
+    }
+    if (!root.workspaceEmpty) root.dockVisible = false
   }
 
   onMouseOverDockAreaChanged: {
@@ -925,27 +978,32 @@ PanelWindow {
       hoverCloseTimer.restart()
       pinMenuCloseTimer.restart()
       settingsCloseTimer.restart()
+      root.hoverName = ""
       scheduleHide()
     }
   }
 
   onWorkspaceEmptyChanged: {
-    if (workspaceEmpty && !hideOnEmpty) showDockBar()
-    else scheduleHide()
+    if (dockMode === "always") { showDockBar(); return }
+    if (dockMode === "smart") {
+      if (workspaceEmpty) showDockBar()
+      else scheduleHide()
+    }
   }
 
-  onHideOnEmptyChanged: {
-    if (hideOnEmpty) {
-      if (workspaceEmpty) {
-        if (mouseOverDockArea || dragging || contextOpen || hoverMenuOpen || pinMenuOpen || settingsOpen) scheduleHide()
-        else {
-          hideTimer.stop()
-          dockVisible = false
-        }
+  onDockModeChanged: {
+    if (dockMode === "always") { showDockBar(); return }
+    if (dockMode === "autohide") {
+      if (!mouseOverDockArea && !dragging && !contextOpen && !hoverMenuOpen
+          && !pinMenuOpen && !settingsOpen) {
+        hideTimer.stop()
+        dockVisible = false
       }
-    } else {
-      if (workspaceEmpty) showDockBar()
+      return
     }
+    // smart
+    if (workspaceEmpty) showDockBar()
+    else scheduleHide()
   }
 
   onContextOpenChanged: {
@@ -1033,7 +1091,9 @@ PanelWindow {
     interval: 500
     repeat: false
     onTriggered: {
-      if ((root.workspaceEmpty && !root.hideOnEmpty) || root.mouseOverDockArea || root.dragging || root.contextOpen || root.hoverMenuOpen || root.pinMenuOpen || root.settingsOpen) return
+      if (root.dockMode === "always") return
+      if (root.mouseOverDockArea || root.dragging || root.contextOpen || root.hoverMenuOpen || root.pinMenuOpen || root.settingsOpen) return
+      if (root.dockMode === "smart" && root.workspaceEmpty) return
       root.dockVisible = false
     }
   }
@@ -1047,7 +1107,8 @@ PanelWindow {
     implicitWidth: row.implicitWidth + 24
     implicitHeight: row.implicitHeight + 24
 
-    color: Color.bar.background
+    // Translucent so the Hyprland layer blur (looknfeel.lua) reads as glass.
+    color: Util.alpha(Color.bar.background, 0.6)
     radius: 18
     border.color: Qt.alpha(Color.foreground, 0.18)
     border.width: 1
@@ -1080,7 +1141,15 @@ PanelWindow {
 
     HoverHandler {
       id: dockHover
-      onHoveredChanged: hovered ? hideTimer.stop() : root.scheduleHide()
+      onHoveredChanged: {
+        if (hovered) {
+          hideTimer.stop()
+        } else {
+          root.cursorSceneX = -10000
+          root.scheduleHide()
+        }
+      }
+      onPointChanged: root.cursorSceneX = point.scenePosition.x
     }
 
     TapHandler {
@@ -1129,10 +1198,12 @@ PanelWindow {
           })
 
           readonly property bool isDragged: root.dragName === appItem.name
+          readonly property real magnifyScale: root.magnifyForIndex(appItem.index)
 
-          width: root.itemSize
-          height: root.itemSize
+          width: Math.round(root.itemSize * magnifyScale)
+          height: width
           z: isDragged ? 10 : 0
+          Behavior on width { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
           // Glued to the pointer while dragged. Because this reads appItem.x,
           // it re-solves whenever the Row re-lays the icon out mid-drag, so
@@ -1142,6 +1213,15 @@ PanelWindow {
           }
 
           property bool busy: false
+          // macOS launch bounce: the icon hops while the app is starting.
+          property real bounceOffset: 0
+
+          SequentialAnimation {
+            running: appItem.busy && !appItem.isRunning
+            loops: Animation.Infinite
+            NumberAnimation { target: appItem; property: "bounceOffset"; from: 0; to: -10; duration: 160; easing.type: Easing.OutQuad }
+            NumberAnimation { target: appItem; property: "bounceOffset"; from: -10; to: 0; duration: 160; easing.type: Easing.InQuad }
+          }
 
           // Debounce guard against double-launch. Normally cleared when a
           // matching toplevel appears; this timer is the fallback for a launch
@@ -1174,8 +1254,13 @@ PanelWindow {
                   }))
                   root.hoverMenuAnchorX = row.mapFromItem(appItem, appItem.width / 2, 0).x
                   hoverDelayTimer.restart()
+                } else if (!root.contextOpen && !root.pinMenuOpen) {
+                  // Single-window app: show the name bubble instead.
+                  root.hoverName = appItem.name
+                  root.hoverNameAnchorX = row.mapFromItem(appItem, appItem.width / 2, 0).x
                 }
               } else {
+                if (root.hoverName === appItem.name) root.hoverName = ""
                 hoverCloseTimer.restart()
               }
             }
@@ -1261,7 +1346,7 @@ PanelWindow {
                         Hyprland.dispatch('hl.dsp.window.move({ workspace = "special:dock_minimize", follow = false, window = "address:' + addr + '" })')
                       }
                     }
-                    if (!root.workspaceEmpty) root.dockVisible = false
+                    root.maybeHideAfterAction()
                     return
                   }
 
@@ -1295,7 +1380,7 @@ PanelWindow {
                   var cls = appItem.toplevels[0].toplevel.lastIpcObject?.class
                   if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
                 }
-                if (!root.workspaceEmpty) root.dockVisible = false
+                root.maybeHideAfterAction()
               } else if (!appItem.busy && !appItem.runningOnly) {
                 appItem.busy = true
                 Quickshell.execDetached(cmdParts)
@@ -1310,9 +1395,11 @@ PanelWindow {
           Image {
             id: iconImg
             anchors.centerIn: parent
+            // Rides the magnified item size (54 → 40 keeps the original look)
+            // and the launch bounce.
+            anchors.verticalCenterOffset: appItem.bounceOffset
             source: root.entryIconSource(appItem.icon)
-            // Tracks the Settings-panel size; 54 → 40 keeps the original look.
-            width: Math.round(root.itemSize * 40 / root.defaultItemSize)
+            width: Math.round(appItem.width * 40 / root.defaultItemSize)
             height: width
             fillMode: Image.PreserveAspectFit
             opacity: appItem.isDragged ? 0.85 : 1
@@ -1354,6 +1441,78 @@ PanelWindow {
             }
           }
         }
+      }
+
+      // macOS-style trailing separator + trash. Kept as Row children so the
+      // bar's width, centering, and the magnification slots stay consistent.
+      Rectangle {
+        id: dockSeparator
+        width: root.separatorWidth
+        height: Math.round(root.itemSize * 0.6)
+        color: Qt.alpha(Color.foreground, 0.18)
+        anchors.verticalCenter: parent.verticalCenter
+      }
+
+      Item {
+        id: dockTrash
+        width: root.trashWidth
+        height: root.trashWidth
+
+        Rectangle {
+          anchors.fill: parent
+          anchors.margins: 2
+          radius: 12
+          color: Color.foreground
+          opacity: trashHover.hovered ? 0.15 : 0
+          Behavior on opacity { NumberAnimation { duration: 150 } }
+        }
+
+        HoverHandler { id: trashHover }
+
+        TapHandler {
+          acceptedButtons: Qt.LeftButton
+          onSingleTapped: Quickshell.execDetached(["nautilus", "trash:///"])
+        }
+
+        Image {
+          anchors.centerIn: parent
+          source: Quickshell.iconPath("user-trash", true)
+          width: Math.round(root.itemSize * 40 / root.defaultItemSize)
+          height: width
+          fillMode: Image.PreserveAspectFit
+        }
+      }
+    }
+  }
+
+  // macOS-style name bubble above the hovered single-window icon.
+  Item {
+    id: appLabel
+
+    width: root.hoverName !== "" ? labelCard.width : 0
+    height: root.hoverName !== "" ? labelCard.height : 0
+    visible: root.hoverName !== ""
+
+    anchors.bottom: dockBar.top
+    anchors.bottomMargin: 6
+    x: Math.max(0, Math.min(dockBar.x + root.hoverNameAnchorX - width / 2, root.width - width))
+
+    Rectangle {
+      id: labelCard
+      implicitWidth: labelText.implicitWidth + 16
+      implicitHeight: labelText.implicitHeight + 8
+      color: Color.tooltip.background
+      radius: 7
+      border.color: Qt.alpha(Color.foreground, 0.18)
+      border.width: 1
+
+      Text {
+        id: labelText
+        anchors.centerIn: parent
+        text: root.hoverName
+        textFormat: Text.PlainText
+        color: Color.tooltip.text
+        font.pixelSize: 12
       }
     }
   }
@@ -1413,6 +1572,7 @@ PanelWindow {
     hoverDelayTimer.stop()
     hoverCloseTimer.stop()
     hoverMenuOpen = false
+    root.hoverName = ""
     if (!root.mouseOverDockArea) root.scheduleHide()
   }
 
@@ -1535,7 +1695,7 @@ PanelWindow {
               onSingleTapped: {
                 root.focusWindow(modelData.address)
                 root.closeHoverMenu()
-                if (!root.workspaceEmpty) root.dockVisible = false
+                root.maybeHideAfterAction()
               }
             }
 
@@ -1941,52 +2101,81 @@ PanelWindow {
           }
         }
 
-        Item {
+        Text {
+          text: "Visibility"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Column {
           width: parent.width
-          height: 22
+          spacing: 2
 
-          TapHandler {
-            acceptedButtons: Qt.LeftButton
-            onSingleTapped: {
-              root.hideOnEmpty = !root.hideOnEmpty
-              root.persistSettings()
-            }
-          }
+          Repeater {
+            model: [
+              { mode: "always", label: "Fixa (sempre visível)" },
+              { mode: "autohide", label: "Auto-hide (revela no hover)" },
+              { mode: "smart", label: "Inteligente (por workspace)" },
+            ]
 
-          Text {
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Show on empty workspace"
-            textFormat: Text.PlainText
-            color: Color.menu.text
-            font.pixelSize: 12
-          }
+            delegate: Rectangle {
+              required property var modelData
 
-          Rectangle {
-            id: hideToggleTrack
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: 34
-            height: 18
-            radius: 9
-            color: !root.hideOnEmpty ? Color.foreground : Qt.alpha(Color.foreground, 0.25)
-            Behavior on color { ColorAnimation { duration: 150 } }
+              width: parent.width
+              height: 24
+              radius: 6
+              color: modeRowHover.hovered ? Color.menu.selectedBackground : "transparent"
 
-            Rectangle {
-              x: !root.hideOnEmpty ? parent.width - width - 2 : 2
-              y: 2
-              width: 14
-              height: 14
-              radius: 7
-              color: Color.menu.background
-              Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+              HoverHandler { id: modeRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  root.dockMode = modelData.mode
+                  root.persistSettings()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: root.dockMode === modelData.mode
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
             }
           }
         }
 
         Text {
           width: parent.width
-          text: "When off, dock stays hidden even on empty workspaces (reveal on hover)"
+          text: "Fixa nunca esconde. Auto-hide revela pela borda inferior. Inteligente mantém a dock visível em workspaces vazios."
           textFormat: Text.PlainText
           color: Color.muted
           font.pixelSize: 10
@@ -2012,7 +2201,7 @@ PanelWindow {
             onSingleTapped: {
               root.itemSize = root.defaultItemSize
               root.itemSpacing = root.defaultItemSpacing
-              root.hideOnEmpty = false
+              root.dockMode = "always"
               root.persistSettings()
             }
           }

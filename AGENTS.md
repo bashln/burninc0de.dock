@@ -68,6 +68,21 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
   rich text and load resources into the long-lived shell. Invisible probes still parse their text and need it too
 - Layer namespace is `quickshelldock`
 
+## Local fork additions (macOS-style dock)
+
+- `dockMode` in `settings.json` selects visibility: `"always"` (fixed, never hides), `"autohide"` (hidden, reveals on
+  bottom-edge hover), `"smart"` (visible on empty workspaces only). Legacy `hideOnEmpty` is migrated to the closest mode.
+  Default is `"always"`; the Settings panel exposes all three.
+- Hover magnification: `magnifyForIndex()` scales each app icon by distance from the cursor slot, computed against the
+  *base* (unmagnified) layout so growing icons can't move their own target and oscillate. `baseContentWidth` includes
+  the trailing separator + trash so the slots line up. Magnification is disabled while dragging or with menus open.
+- Name bubble (`appLabel`) above the hovered single-window icon; multi-window apps still show the window list.
+- Launch bounce: `bounceOffset` SequentialAnimation while `busy`.
+- Trailing separator + trash are Row children (kept in the base-layout math); trash opens `nautilus trash:///`.
+- Glass background: `dockBar` uses `Util.alpha(Color.bar.background, 0.6)`; blur comes from
+  `hl.layer_rule({ match = { namespace = "quickshelldock" }, blur = true, ignore_alpha = 0.5 })` in `~/.config/hypr/looknfeel.lua`.
+- Plugin hot-reload does not always repaint the dock; verify changes with `omarchy restart shell`.
+
 ## Dock visibility
 
 - Empty workspace → dock always visible
