@@ -148,6 +148,9 @@ PanelWindow {
   // Hover window list state.
   property bool hoverMenuOpen: false
   property string hoverMenuKey: ""
+  // Name of the app icon currently under the pointer ("" over bar background).
+  // The window list is kept only while its owning icon is the hovered one.
+  property string hoveredItemName: ""
   property var hoverMenuWindows: []
   property real hoverMenuAnchorX: 0
 
@@ -1154,7 +1157,13 @@ PanelWindow {
           root.scheduleHide()
         }
       }
-      onPointChanged: root.cursorSceneX = point.scenePosition.x
+      onPointChanged: {
+        root.cursorSceneX = point.scenePosition.x
+        // Pointer left the icon that owns the open window list (to another
+        // icon or the bar background): drop the list.
+        if (root.hoverMenuOpen && root.hoveredItemName !== root.hoverMenuKey)
+          root.closeHoverMenu()
+      }
     }
 
     TapHandler {
@@ -1251,6 +1260,7 @@ PanelWindow {
             id: itemHover
             onHoveredChanged: {
               if (hovered) {
+                root.hoveredItemName = appItem.name
                 // Switching icons must drop the previous icon's window list:
                 // hoverCloseTimer only fires once the pointer leaves the whole
                 // dock area, so it can't handle icon-to-icon moves.
@@ -1270,6 +1280,7 @@ PanelWindow {
                   root.hoverNameAnchorX = row.mapFromItem(appItem, appItem.width / 2, 0).x
                 }
               } else {
+                if (root.hoveredItemName === appItem.name) root.hoveredItemName = ""
                 if (root.hoverName === appItem.name) root.hoverName = ""
                 hoverCloseTimer.restart()
               }
