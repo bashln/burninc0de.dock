@@ -61,6 +61,8 @@ PanelWindow {
   property string dockMode: "always"
   // Hover magnification can be switched off entirely (Settings / settings.json).
   property bool magnifyEnabled: true
+  // Leading Omarchy menu button (opens the app menu); toggled in Settings.
+  property bool showMenu: true
   // macOS-style hover magnification. Only off while dragging, so the reorder
   // math (itemPitch) stays stable — menus must NOT disable it, otherwise
   // hovering a multi-window icon (which opens the window list) collapses the
@@ -303,11 +305,12 @@ PanelWindow {
     else if (typeof s.hideOnEmptyWorkspace === "boolean")
       dockMode = s.hideOnEmptyWorkspace ? "autohide" : "smart"
     if (typeof s.magnify === "boolean") magnifyEnabled = s.magnify
+    if (typeof s.showMenu === "boolean") showMenu = s.showMenu
   }
 
   function persistSettings() {
     settingsFile.setText(JSON.stringify(
-      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled }, null, 2) + "\n")
+      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled, showMenu: showMenu }, null, 2) + "\n")
   }
 
   // Write-only handle for drag order. Never loaded, so nothing from disk is
@@ -471,11 +474,19 @@ PanelWindow {
   // Called on every pointer move during a drag: figure out which slot the
   // dragged icon is currently over and shuffle the model if it changed.
   function updateDragTarget(fromIndex) {
-    const desiredLeft = dragPointerX - dragGrabOffset
-    let target = Math.round(desiredLeft / itemPitch)
-    if (target < 0) target = 0
-    if (target > appModel.count - 1) target = appModel.count - 1
-    if (target !== fromIndex) appModel.move(fromIndex, target, 1)
+    // Map the dragged icon's centre to the nearest base slot, so the target is
+    // correct with the leading menu tile and with variable-width spacers.
+    const draggedCenter = dragPointerX - dragGrabOffset + appBaseWidth(fromIndex) / 2
+    let best = 0
+    let bestDist = Infinity
+    let off = menuOffset
+    for (let i = 0; i < appModel.count; i++) {
+      const w = appBaseWidth(i)
+      const d = Math.abs(draggedCenter - (off + w / 2))
+      if (d < bestDist) { bestDist = d; best = i }
+      off += w + itemSpacing
+    }
+    if (best !== fromIndex) appModel.move(fromIndex, best, 1)
   }
 
   function checkWorkspaceEmpty() {
@@ -958,19 +969,24 @@ PanelWindow {
     return appModel.get(i).spacer ? spacerWidth : itemSize
   }
 
-  // Total base width of the Row: every app/spacer + the separator + trash,
-  // with one itemSpacing between each adjacent pair.
+  // Base width of the Row's leading Omarchy menu tile (0 when hidden).
+  readonly property real menuWidth: showMenu ? itemSize : 0
+  // Base left offset of the first app: the menu tile plus its gap.
+  readonly property real menuOffset: showMenu ? itemSize + itemSpacing : 0
+
+  // Total base width of the Row: the menu tile + every app/spacer + the
+  // separator + trash, with one itemSpacing between each adjacent pair.
   function baseContentWidth() {
     let w = 0
     for (let i = 0; i < appModel.count; i++) w += appBaseWidth(i)
-    return w + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
+    return menuOffset + w + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
   }
 
   function magnifyForIndex(i) {
     if (!magnifyActive || appModel.count === 0) return 1
     if (appModel.get(i).spacer) return 1
     const baseLeft = root.width / 2 - baseContentWidth() / 2
-    let off = 0
+    let off = menuOffset
     for (let j = 0; j < i; j++) off += appBaseWidth(j) + itemSpacing
     const dist = Math.abs(cursorSceneX - (baseLeft + off + itemSize / 2))
     if (dist >= magnifyRadius) return 1
@@ -1200,6 +1216,40 @@ PanelWindow {
       // for fully instant reordering.
       move: Transition {
         NumberAnimation { properties: "x"; duration: 120; easing.type: Easing.OutCubic }
+      }
+
+      // Leading Omarchy menu button. Opens the shell's app menu; hidden items
+      // are skipped by Row layout, so no gap is left when it is off.
+      Item {
+        id: dockMenu
+        visible: root.showMenu
+        width: root.itemSize
+        height: root.itemSize
+
+        Rectangle {
+          anchors.fill: parent
+          anchors.margins: 2
+          radius: 12
+          color: Color.foreground
+          opacity: menuHover.hovered ? 0.15 : 0
+          Behavior on opacity { NumberAnimation { duration: 150 } }
+        }
+
+        HoverHandler { id: menuHover }
+
+        TapHandler {
+          acceptedButtons: Qt.LeftButton
+          onSingleTapped: Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "omarchy.menu", '{"menu":"root"}'])
+        }
+
+        Text {
+          anchors.centerIn: parent
+          // Omarchy logo glyph from the "omarchy" font (same as the bar's menu).
+          text: "\ue900"
+          font.family: "omarchy"
+          font.pixelSize: Math.round(root.itemSize * 0.62)
+          color: Color.foreground
+        }
       }
 
       Repeater {
@@ -2338,6 +2388,48 @@ PanelWindow {
           }
         }
 
+        Item {
+          width: parent.width
+          height: 22
+
+          TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onSingleTapped: {
+              root.showMenu = !root.showMenu
+              root.persistSettings()
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Menu do Omarchy"
+            textFormat: Text.PlainText
+            color: Color.menu.text
+            font.pixelSize: 12
+          }
+
+          Rectangle {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: 34
+            height: 18
+            radius: 9
+            color: root.showMenu ? Color.accent : Qt.alpha(Color.foreground, 0.25)
+            Behavior on color { ColorAnimation { duration: 150 } }
+
+            Rectangle {
+              x: root.showMenu ? parent.width - width - 2 : 2
+              y: 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.background
+              Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            }
+          }
+        }
+
         Rectangle {
           width: parent.width
           height: 1
@@ -2360,6 +2452,7 @@ PanelWindow {
               root.spacerWidth = 24
               root.dockMode = "always"
               root.magnifyEnabled = true
+              root.showMenu = true
               root.persistSettings()
             }
           }
