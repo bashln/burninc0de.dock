@@ -75,6 +75,9 @@ PanelWindow {
   // magnification slots line up with the unmagnified icons.
   readonly property real separatorWidth: 1
   readonly property real trashWidth: itemSize
+  // Glass translucency derived from the theme's bar alpha (clamped so it stays
+  // a glass surface even with an opaque theme, without going invisible).
+  readonly property real glassAlpha: Math.max(0.35, Math.min(0.75, Color.bar.background.a))
   readonly property real baseContentWidth: appModel.count > 0
     ? appModel.count * itemSize + (appModel.count + 1) * itemSpacing + separatorWidth + trashWidth
     : separatorWidth + trashWidth + itemSpacing
@@ -1113,7 +1116,8 @@ PanelWindow {
     implicitHeight: row.implicitHeight + 24
 
     // Translucent so the Hyprland layer blur (looknfeel.lua) reads as glass.
-    color: Util.alpha(Color.bar.background, 0.6)
+    // Alpha follows the active theme's bar surface.
+    color: Util.alpha(Color.bar.background, root.glassAlpha)
     radius: 18
     border.color: Qt.alpha(Color.foreground, 0.18)
     border.width: 1
@@ -1423,7 +1427,8 @@ PanelWindow {
             width: 4
             height: 4
             radius: 2
-            color: Color.bar.text
+            // Running-app indicator uses the theme accent.
+            color: Color.accent
           }
 
           Rectangle {
@@ -1435,7 +1440,8 @@ PanelWindow {
             width: Math.max(18, badgeText.implicitWidth + 10)
             height: 18
             radius: 9
-            color: "#ea4335"
+            // Unread badge uses the theme's urgent colour.
+            color: Color.urgent
             border.color: Color.bar.background
             border.width: 1.5
 
