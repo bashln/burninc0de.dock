@@ -1251,6 +1251,11 @@ PanelWindow {
             id: itemHover
             onHoveredChanged: {
               if (hovered) {
+                // Switching icons must drop the previous icon's window list:
+                // hoverCloseTimer only fires once the pointer leaves the whole
+                // dock area, so it can't handle icon-to-icon moves.
+                if (root.hoverMenuOpen && root.hoverMenuKey !== appItem.name)
+                  root.closeHoverMenu()
                 if (appItem.toplevels.length >= 2 && !root.contextOpen && !root.pinMenuOpen) {
                   root.hoverMenuKey = appItem.name
                   root.hoverMenuWindows = appItem.toplevels.map(t => ({
