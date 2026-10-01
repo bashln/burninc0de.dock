@@ -59,6 +59,8 @@ PanelWindow {
   //   "autohide" hidden — reveals on bottom-edge hover (macOS auto-hide)
   //   "smart"    visible on empty workspaces only (previous behaviour)
   property string dockMode: "always"
+  // Hover magnification can be switched off entirely (Settings / settings.json).
+  property bool magnifyEnabled: true
   // macOS-style hover magnification. Only off while dragging, so the reorder
   // math (itemPitch) stays stable — menus must NOT disable it, otherwise
   // hovering a multi-window icon (which opens the window list) collapses the
@@ -66,7 +68,7 @@ PanelWindow {
   property real cursorSceneX: -10000
   readonly property real magnifyMaxScale: 1.6
   readonly property real magnifyRadius: itemSize * 2.6
-  readonly property bool magnifyActive: dockHover.hovered && !dragging
+  readonly property bool magnifyActive: magnifyEnabled && dockHover.hovered && !dragging
   // Name bubble above the hovered icon (single-window apps; multi-window apps
   // show the window list instead).
   property string hoverName: ""
@@ -298,11 +300,12 @@ PanelWindow {
       dockMode = s.hideOnEmpty ? "autohide" : "smart"
     else if (typeof s.hideOnEmptyWorkspace === "boolean")
       dockMode = s.hideOnEmptyWorkspace ? "autohide" : "smart"
+    if (typeof s.magnify === "boolean") magnifyEnabled = s.magnify
   }
 
   function persistSettings() {
     settingsFile.setText(JSON.stringify(
-      { iconSize: itemSize, spacing: itemSpacing, mode: dockMode }, null, 2) + "\n")
+      { iconSize: itemSize, spacing: itemSpacing, mode: dockMode, magnify: magnifyEnabled }, null, 2) + "\n")
   }
 
   // Write-only handle for drag order. Never loaded, so nothing from disk is
@@ -2198,6 +2201,48 @@ PanelWindow {
           wrapMode: Text.WordWrap
         }
 
+        Item {
+          width: parent.width
+          height: 22
+
+          TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onSingleTapped: {
+              root.magnifyEnabled = !root.magnifyEnabled
+              root.persistSettings()
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Magnificar no hover"
+            textFormat: Text.PlainText
+            color: Color.menu.text
+            font.pixelSize: 12
+          }
+
+          Rectangle {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: 34
+            height: 18
+            radius: 9
+            color: root.magnifyEnabled ? Color.accent : Qt.alpha(Color.foreground, 0.25)
+            Behavior on color { ColorAnimation { duration: 150 } }
+
+            Rectangle {
+              x: root.magnifyEnabled ? parent.width - width - 2 : 2
+              y: 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.background
+              Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            }
+          }
+        }
+
         Rectangle {
           width: parent.width
           height: 1
@@ -2218,6 +2263,7 @@ PanelWindow {
               root.itemSize = root.defaultItemSize
               root.itemSpacing = root.defaultItemSpacing
               root.dockMode = "always"
+              root.magnifyEnabled = true
               root.persistSettings()
             }
           }
