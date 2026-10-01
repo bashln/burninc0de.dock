@@ -20,6 +20,76 @@ omarchy plugin add https://github.com/burninc0de/burninc0de.dock.git --enable
 
 That clones the plugin into `~/.config/omarchy/plugins/burninc0de.dock` and starts it. Verify with `omarchy plugin list` — it should show up as `burninc0de.dock`, enabled.
 
+## Local fork (bashln) — extra features
+
+This branch (`local-customizations`, remote `github.com/bashln/burninc0de.dock`)
+extends upstream with a more macOS-like dock. The code lives in `DockPanel.qml`;
+state stays in `~/.local/state/omarchy/burninc0de.dock/` and settings in
+`settings.json`.
+
+### Visibility modes
+`settings.json` → `mode`:
+- `always` — fixed, never hides (default). Reserves screen space, so tiling
+  windows stop above the dock.
+- `autohide` — hidden; reveals on bottom-edge hover. No reserved space, so
+  windows use the full screen height.
+- `smart` — previous behaviour: visible on empty workspaces only.
+
+Legacy `hideOnEmpty` is migrated to the closest mode.
+
+### Settings
+Right-click empty dock space → **Settings**. Every control writes `settings.json`:
+
+| Key | Meaning |
+|-----|---------|
+| `iconSize` | icon size in px |
+| `spacing` | gap between icons in px |
+| `spacerWidth` | width of a spacer entry in px |
+| `mode` | `always` / `autohide` / `smart` |
+| `magnify` | hover magnification on/off |
+| `showMenu` | leading Omarchy menu button on/off |
+
+### Hover magnification
+Icons scale up around the cursor slot, macOS-style (the bar grows from the
+bottom). It is disabled while dragging so reordering stays stable. Turn it off
+with `magnify` / the Settings switch.
+
+### Spacers
+Group icons macOS-style by adding a spacer entry to `config/UserConfig.qml`
+(or `DockApps.qml`):
+
+```qml
+{ name: "spacer", spacer: true },
+```
+
+A spacer renders as a fixed gap of `spacerWidth` px, has no icon, never matches
+a window, and can't be dragged.
+
+### Omarchy menu button
+A leading tile with the Omarchy logo opens the shell app menu
+(`omarchy-shell shell toggle omarchy.menu '{"menu":"root"}'`). Toggle it with
+`showMenu`.
+
+### Theme-aware colours
+The dock follows the active Omarchy theme: the running-app dot uses the theme
+accent, the unread badge uses `urgent`, and the glass alpha derives from the
+theme's bar alpha. Backdrop blur comes from a layer rule in
+`~/.config/hypr/looknfeel.lua`:
+
+```lua
+hl.layer_rule({ match = { namespace = "quickshelldock" }, blur = true, ignore_alpha = 0.5 })
+```
+
+### Other touches
+- Name bubble above the hovered single-window icon. Multi-window apps open the
+  window list instead, which closes as soon as another icon is hovered.
+- Launch bounce while an app is starting.
+- Multi-window count badge (top-left) for apps with two or more windows.
+- Trailing separator + trash (opens `nautilus trash:///`).
+
+> Plugin hot-reload does not always repaint the dock; apply changes with
+> `omarchy restart shell`.
+
 ## Using the dock
 
 The happy path is all mouse-driven, no config file required. Right-click an **empty spot on the bar** and you get everything:
