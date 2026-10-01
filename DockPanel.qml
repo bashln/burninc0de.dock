@@ -1513,6 +1513,32 @@ PanelWindow {
             color: Color.accent
           }
 
+          // Multi-window count badge (top-left). Complements the hover window
+          // list: you can see at a glance which apps have more than one window.
+          Rectangle {
+            visible: appItem.toplevels.length >= 2 && !appItem.spacer
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.topMargin: -4
+            anchors.leftMargin: -4
+            width: Math.max(16, winCountText.implicitWidth + 8)
+            height: 16
+            radius: 8
+            color: Color.accent
+            border.color: Color.bar.background
+            border.width: 1
+
+            Text {
+              id: winCountText
+              anchors.centerIn: parent
+              text: appItem.toplevels.length > 9 ? "9+" : appItem.toplevels.length.toString()
+              textFormat: Text.PlainText
+              color: Color.bar.background
+              font.pixelSize: 9
+              font.bold: true
+            }
+          }
+
           Rectangle {
             visible: appItem.unreadCount > 0 && !appItem.spacer
             anchors.top: parent.top
