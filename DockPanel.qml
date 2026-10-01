@@ -20,7 +20,11 @@ PanelWindow {
   anchors.right: true
   WlrLayershell.namespace: "quickshelldock"
   WlrLayershell.layer: WlrLayer.Top
-  exclusiveZone: -1
+  // Reserve screen space only in the fixed mode, so tiling windows stop above
+  // the dock (macOS without auto-hide). Auto-hide/smart float over content.
+  // Uses the base size, not the hover-magnified one, so hovering never
+  // reflows the windows. `-1` = no reservation.
+  exclusiveZone: dockMode === "always" ? Math.round(itemSize + 24 + gap + 4) : -1
   color: "transparent"
   focusable: false
 
