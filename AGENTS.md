@@ -78,8 +78,9 @@ Hyprland dock panel built with Quickshell (QML). No build step — loaded direct
   the trailing separator + trash so the slots line up. Magnification is disabled only while dragging (menus must not
   disable it, or hovering a multi-window icon collapses the effect when its window list opens).
 - Name bubble (`appLabel`) above the hovered single-window icon; multi-window apps still show the window list.
-- The window list is tied to its owning icon (`hoveredItemName`): it closes when another icon or the bar background is
-  hovered, not only when the pointer leaves the whole dock (hoverCloseTimer alone can't handle icon-to-icon moves).
+- The window list closes as soon as another icon is hovered (hoverCloseTimer alone only fires once the pointer leaves
+  the whole dock area, so it can't handle icon-to-icon moves). It deliberately stays open when the pointer moves up
+  onto the list itself, so a window can be picked.
 - Launch bounce: `bounceOffset` SequentialAnimation while `busy`.
 - Trailing separator + trash are Row children (kept in the base-layout math); trash opens `nautilus trash:///`.
 - Glass background: `dockBar` uses `Util.alpha(Color.bar.background, 0.6)`; blur comes from
