@@ -52,6 +52,13 @@ test("routeScroll maps the enum and rejects unknown values", () => {
   assert.strictEqual(A.routeScroll("nope"), "nothing");
 });
 
+test("mostRecentIndex picks the lowest focusHistoryID", () => {
+  assert.strictEqual(A.mostRecentIndex([]), -1);
+  assert.strictEqual(A.mostRecentIndex([3]), 0);
+  assert.strictEqual(A.mostRecentIndex([5, 0, 9]), 1);
+  assert.strictEqual(A.mostRecentIndex([5, 9, 2]), 2);
+});
+
 test("scrollStep fires once per notch and resets", () => {
   let s = A.scrollStep(0, 30);
   assert.deepStrictEqual(s, { acc: 30, fire: false });

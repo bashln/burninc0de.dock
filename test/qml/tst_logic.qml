@@ -86,6 +86,7 @@ TestCase {
     compare(ActionsLogic.routeClick("cycle", false), "launch");
     compare(ActionsLogic.cycleIndex([0, 5, 9], -1), 2);
     compare(ActionsLogic.cycleIndex([], 1), -1);
+    compare(ActionsLogic.mostRecentIndex([5, 0, 9]), 1);
     verify(ActionsLogic.scrollStep(0, 120).fire);
     compare(ActionsLogic.routeScroll("bogus"), "nothing");
   }

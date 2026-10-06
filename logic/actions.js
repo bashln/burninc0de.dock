@@ -32,6 +32,18 @@ function cycleIndex(focusIds, delta) {
   return order[((focusedPos + step) % n + n) % n].i;
 }
 
+// Index of the most recently used window given one focusHistoryID per window
+// (0 = currently focused); -1 when the list is empty. This is what the
+// "focus" click action targets.
+function mostRecentIndex(focusIds) {
+  if (!focusIds || focusIds.length === 0) return -1;
+  let best = 0;
+  for (let i = 1; i < focusIds.length; i++) {
+    if (focusIds[i] < focusIds[best]) best = i;
+  }
+  return best;
+}
+
 // Scroll action enum -> operation; unknown values do nothing.
 function routeScroll(action) {
   if (action === "cycle-windows") return "cycle-windows";
@@ -52,6 +64,7 @@ if (typeof module !== "undefined" && module.exports) {
     NOTCH,
     routeClick,
     cycleIndex,
+    mostRecentIndex,
     routeScroll,
     scrollStep,
   };
