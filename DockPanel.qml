@@ -2157,6 +2157,15 @@ PanelWindow {
         }
 
         Text {
+          width: parent.width
+          text: "Fixa nunca esconde. Auto-hide revela pela borda inferior. Inteligente mantém a dock visível em workspaces vazios."
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 10
+          wrapMode: Text.WordWrap
+        }
+
+        Text {
           text: "Indicator"
           textFormat: Text.PlainText
           color: Color.muted
@@ -2228,15 +2237,6 @@ PanelWindow {
               }
             }
           }
-        }
-
-        Text {
-          width: parent.width
-          text: "Fixa nunca esconde. Auto-hide revela pela borda inferior. Inteligente mantém a dock visível em workspaces vazios."
-          textFormat: Text.PlainText
-          color: Color.muted
-          font.pixelSize: 10
-          wrapMode: Text.WordWrap
         }
 
         Item {
