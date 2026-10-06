@@ -6,6 +6,7 @@ import "../../logic/icons.js" as IconsLogic
 import "../../logic/model.js" as ModelLogic
 import "../../logic/indicator.js" as IndicatorLogic
 import "../../logic/transparency.js" as TransparencyLogic
+import "../../logic/actions.js" as ActionsLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -78,5 +79,14 @@ TestCase {
     compare(TransparencyLogic.alphaFor("dynamic", 0.5, 0.35, 0.75, 0), 0.55);
     compare(TransparencyLogic.nearness([], dock, 100), 0);
     compare(TransparencyLogic.nearness([{ x: 0, y: 950, w: 1920, h: 130 }], dock, 100), 1);
+  }
+
+  function test_actions() {
+    compare(ActionsLogic.routeClick("minimize", true), "minimize");
+    compare(ActionsLogic.routeClick("cycle", false), "launch");
+    compare(ActionsLogic.cycleIndex([0, 5, 9], -1), 2);
+    compare(ActionsLogic.cycleIndex([], 1), -1);
+    verify(ActionsLogic.scrollStep(0, 120).fire);
+    compare(ActionsLogic.routeScroll("bogus"), "nothing");
   }
 }
