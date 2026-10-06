@@ -3,6 +3,7 @@ import "../../logic/state.js" as StateLogic
 import "../../logic/settings.js" as SettingsLogic
 import "../../logic/matching.js" as MatchingLogic
 import "../../logic/icons.js" as IconsLogic
+import "../../logic/model.js" as ModelLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -44,5 +45,13 @@ TestCase {
     compare(IconsLogic.hostFromClass("chrome-web.whatsapp.com__-Default"), "web.whatsapp.com");
     compare(IconsLogic.resolveLabel("foo", "T", { foo: { name: "Foo" } }), "Foo");
     compare(IconsLogic.resolveIcon("foo", { foo: { icon: "bar" } }), "bar");
+  }
+
+  function test_model() {
+    const merged = ModelLogic.mergeApps([{ name: "Terminal" }], [{ name: "Firefox" }], ["Terminal"], MatchingLogic.isHiddenApp);
+    compare(merged.length, 1);
+    compare(merged[0].name, "Firefox");
+    const ordered = ModelLogic.applyOrder([{ name: "A" }, { name: "B" }], ["B"]);
+    compare(ordered[0].name, "B");
   }
 }

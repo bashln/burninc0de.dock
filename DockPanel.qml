@@ -6,7 +6,7 @@ import QtQuick.Controls.Basic
 import qs.Commons
 import "config"
 import "services"
-import "logic/matching.js" as Matching
+import "model"
 import Quickshell.Io
 
 PanelWindow {
@@ -187,111 +187,13 @@ PanelWindow {
     function onHiddenLoaded() { if (!root.dragging) root.rebuildModel() }
   }
 
-  function normalizeApp(app, pinned) {
-    return {
-      // Desktop entry id, only present on pinned apps. It is the key the
-      // pin tool unpins by.
-      entryId: app.id ?? "",
-      pinned: pinned === true,
-      name: app.name ?? "",
-      icon: app.icon ?? "",
-      cmd: app.cmd ?? "",
-      // `match` is a reserved-ish name on the QML side, so the role is renamed.
-      matchTitle: app.match ?? "",
-      appId: app.appId ?? "",
-      minimizable: app.minimizable !== false,
-      runningOnly: false,
-      spacer: app.spacer === true,
-    }
-  }
+  DockModel { id: dockModel }
 
-  // A hidden entry is off the dock entirely: it must neither render nor claim a
-  // running window, so a hidden-but-running app can resurface through
-  // showRunningUnpinned instead of vanishing while open.
-  function isHiddenApp(app) {
-    return Matching.isHiddenApp(app, StateStore.hidden)
-  }
-
-  // Declaration order in the config is the baseline; anything the user has
-  // dragged wins over it. Apps added to the config after the last drag land
-  // at the end.
+  // Rebuild the visible app list through the tested model builder. The
+  // ListModel stays here because the drag relies on move() keeping delegates
+  // alive, and the magnifier reads it by index.
   function rebuildModel() {
-    let apps = []
-    // Drop hidden config apps before pins/window claiming so they can resurface while running.
-    for (const app of DockApps.apps) {
-      const entry = normalizeApp(app, false)
-      if (!isHiddenApp(entry)) apps.push(entry)
-    }
-
-    // Pins append after the configured apps. An app already declared in
-    // UserConfig.qml wins, so pinning something that is already on the dock
-    // is a no-op rather than a duplicate icon.
-    for (const pin of StateStore.pins) {
-      const entry = normalizeApp(pin, true)
-      let duplicate = false
-      for (const app of apps) {
-        if (app.name === entry.name || (app.cmd && app.cmd === entry.cmd)) {
-          duplicate = true
-          break
-        }
-      }
-      if (!duplicate) apps.push(entry)
-    }
-
-    // Running apps no config/pinned entry claims, same scan as the pin menu.
-    // Surface them on the bar so unpinned work is visible without right-click.
-    if (root.showRunningUnpinned) {
-      let claimed = []
-      for (const app of apps) {
-        const tls = root.getToplevelsForApp({ match: app.matchTitle, appId: app.appId, cmd: app.cmd })
-        for (const t of tls) claimed.push(t.toplevel)
-      }
-      const used = {}
-      for (const app of apps) used[app.name] = true
-      const seen = {}
-      for (const tl of Hyprland.toplevels.values) {
-        if (claimed.indexOf(tl) >= 0) continue
-        const cls = tl.lastIpcObject?.class ?? ""
-        const aid = tl.wayland?.appId ?? ""
-        const key = cls || aid
-        if (!key || seen[key]) continue
-        seen[key] = true
-        const entry = root.desktopEntryForWindow(cls, aid)
-        let label = entry ? String(entry.name || "") : root.candidateLabel(key, tl.title)
-        if (!label) label = key
-        // byName in the order pass below would drop a colliding entry.
-        if (used[label]) label = key
-        if (used[label]) continue
-        used[label] = true
-        apps.push({
-          entryId: "",
-          pinned: false,
-          runningOnly: true,
-          name: label,
-          icon: entry ? String(entry.icon || "") : root.candidateIcon(key, cls, aid),
-          cmd: "",
-          matchTitle: "",
-          appId: aid || cls,
-          minimizable: true,
-          spacer: false,
-        })
-      }
-    }
-
-    if (StateStore.order.length > 0) {
-      let byName = {}
-      for (const app of apps) byName[app.name] = app
-      let sorted = []
-      for (const name of StateStore.order) {
-        if (byName[name]) {
-          sorted.push(byName[name])
-          delete byName[name]
-        }
-      }
-      for (const app of apps) if (byName[app.name]) sorted.push(app)
-      apps = sorted
-    }
-
+    const apps = dockModel.build(root.showRunningUnpinned)
     appModel.clear()
     for (const app of apps) appModel.append(app)
   }

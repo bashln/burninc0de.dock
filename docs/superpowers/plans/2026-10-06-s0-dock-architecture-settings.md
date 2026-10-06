@@ -496,7 +496,7 @@ git commit -m "refactor: extract icon resolution into IconResolver"
   - `Model.mergeApps(configApps, pins, hidden) -> array`
   - `Model.applyOrder(apps, savedOrder) -> array`
   - `Model.runningUnpinned(apps, windows) -> array`, `windows` are `{ key, cls, appId, title, label, icon }`
-  - `DockModel` component: `property alias apps` (ListModel), `function rebuild()`, `function persistOrder()`.
+  - `DockModel` component (builder): `function build(includeRunning) -> array`. The `ListModel` stays in `DockPanel`, because the drag needs `move()` and the magnifier reads it by index.
 
 - [ ] **Step 1: Write the failing test `test/model.test.js`**
 

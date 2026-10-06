@@ -95,8 +95,8 @@ S1 adds fields to this schema through the same mechanism.
 - `services/IconResolver.qml` (singleton): `desktopNameMap`, disk icon index,
   `entryIconSource`, `candidateLabel`, `candidateIcon`, `desktopEntryForWindow`.
 - `services/DockIpc.qml` (singleton): `IpcHandler` with `toggle`, `pin`, `settings`.
-- `model/DockModel.qml` (component, per panel): `appModel`, `rebuild`,
-  `persistOrder`, runs `runningUnpinned`.
+- `model/DockModel.qml` (component, per panel): `build(includeRunning)` returns
+  the assembled app array. `DockPanel` owns the `ListModel`.
 - `test/run.sh`, `test/*.test.js`: node test runner and tests.
 
 ## Data flow
