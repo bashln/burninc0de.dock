@@ -4,6 +4,7 @@ import "../../logic/settings.js" as SettingsLogic
 import "../../logic/matching.js" as MatchingLogic
 import "../../logic/icons.js" as IconsLogic
 import "../../logic/model.js" as ModelLogic
+import "../../logic/indicator.js" as IndicatorLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -62,5 +63,11 @@ TestCase {
     compare(merged[0].name, "Firefox");
     const ordered = ModelLogic.applyOrder([{ name: "A" }, { name: "B" }], ["B"]);
     compare(ordered[0].name, "B");
+  }
+
+  function test_indicator() {
+    compare(IndicatorLogic.spec("dots", 3).segments, 3);
+    compare(IndicatorLogic.spec("count", 1).showCount, true);
+    compare(IndicatorLogic.spec("dots", 10).segments, IndicatorLogic.LIMIT);
   }
 }
