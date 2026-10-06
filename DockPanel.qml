@@ -376,12 +376,24 @@ PanelWindow {
     }
   }
 
+  // A hidden entry is off the dock entirely: it must neither render nor claim a
+  // running window, so a hidden-but-running app can resurface through
+  // showRunningUnpinned instead of vanishing while open.
+  function isHiddenApp(app) {
+    if (hiddenApps.indexOf(app.name) >= 0) return true
+    return app.entryId !== "" && hiddenApps.indexOf(app.entryId) >= 0
+  }
+
   // Declaration order in the config is the baseline; anything the user has
   // dragged wins over it. Apps added to the config after the last drag land
   // at the end.
   function rebuildModel() {
     let apps = []
-    for (const app of DockApps.apps) apps.push(normalizeApp(app, false))
+    // Drop hidden config apps before pins/window claiming so they can resurface while running.
+    for (const app of DockApps.apps) {
+      const entry = normalizeApp(app, false)
+      if (!isHiddenApp(entry)) apps.push(entry)
+    }
 
     // Pins append after the configured apps. An app already declared in
     // UserConfig.qml wins, so pinning something that is already on the dock
@@ -453,11 +465,7 @@ PanelWindow {
     }
 
     appModel.clear()
-    for (const app of apps) {
-      if (hiddenApps.indexOf(app.name) >= 0) continue
-      if (app.entryId && hiddenApps.indexOf(app.entryId) >= 0) continue
-      appModel.append(app)
-    }
+    for (const app of apps) appModel.append(app)
   }
 
   function persistOrder() {
@@ -665,7 +673,7 @@ PanelWindow {
     if (map && key) {
       const lower = key.toLowerCase()
       if (map[lower] && map[lower].icon) return map[lower].icon
-      const m = lower.match(/-([a-z0-9.-]+.[a-z]+)__/)
+      const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
       if (m && map[m[1]] && map[m[1]].icon) return map[m[1]].icon
     }
     return root.pinCandidateIcon({ cls: cls, appId: appId })
@@ -793,7 +801,7 @@ PanelWindow {
     const raw = entry.cls || entry.appId || ""
     if (!raw) return ""
     const lower = raw.toLowerCase()
-    const m = lower.match(/-([a-z0-9.-]+.[a-z]+)__/)
+    const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
     if (m) {
       const host = m[1]
       const parts = host.split(".")
@@ -969,9 +977,7 @@ PanelWindow {
     return appModel.get(i).spacer ? spacerWidth : itemSize
   }
 
-  // Base width of the Row's leading Omarchy menu tile (0 when hidden).
-  readonly property real menuWidth: showMenu ? itemSize : 0
-  // Base left offset of the first app: the menu tile plus its gap.
+  // Base left offset of the first app: the leading menu tile plus its gap.
   readonly property real menuOffset: showMenu ? itemSize + itemSpacing : 0
 
   // Total base width of the Row: the menu tile + every app/spacer + the
