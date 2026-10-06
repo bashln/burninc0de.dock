@@ -7,6 +7,7 @@ import qs.Commons
 import "config"
 import "services"
 import "model"
+import "logic/indicator.js" as Indicator
 import Quickshell.Io
 
 PanelWindow {
@@ -1061,16 +1062,43 @@ PanelWindow {
             opacity: appItem.isDragged ? 0.85 : 1
           }
 
-          Rectangle {
+          // Running indicator. Shape driven by Settings.indicatorStyle; the
+          // default `dot` reproduces the original single dot.
+          Item {
+            id: indicator
             visible: appItem.isRunning && !appItem.spacer
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: -6
-            width: 4
-            height: 4
-            radius: 2
-            // Running-app indicator uses the theme accent.
-            color: Color.accent
+            width: 0
+            height: 0
+            readonly property var spec: Indicator.spec(Settings.indicatorStyle, appItem.toplevels.length)
+
+            Row {
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.bottom: parent.bottom
+              spacing: 3
+              Repeater {
+                model: indicator.spec.segments
+                delegate: Rectangle {
+                  width: indicator.spec.shape === "dot" ? 4 : (indicator.spec.shape === "dash" ? 8 : Math.round(root.itemSize * 0.6))
+                  height: indicator.spec.shape === "dot" ? 4 : 3
+                  radius: indicator.spec.shape === "dot" ? 2 : 1.5
+                  color: Color.accent
+                }
+              }
+            }
+
+            Text {
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.bottom: parent.bottom
+              visible: indicator.spec.showCount
+              text: appItem.toplevels.length.toString()
+              textFormat: Text.PlainText
+              color: Color.accent
+              font.pixelSize: 9
+              font.bold: true
+            }
           }
 
           // Multi-window count badge (top-left). Complements the hover window
@@ -2113,6 +2141,80 @@ PanelWindow {
                     radius: 3
                     color: Color.foreground
                     visible: root.dockMode === modelData.mode
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
+            }
+          }
+        }
+
+        Text {
+          text: "Indicator"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { style: "dot", label: "Dot" },
+              { style: "dots", label: "Dots (por janela)" },
+              { style: "dashes", label: "Dashes (por janela)" },
+              { style: "solid", label: "Solid (barra)" },
+              { style: "count", label: "Count (número)" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: indRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: indRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.indicatorStyle = modelData.style
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.indicatorStyle === modelData.style
                   }
                 }
 
