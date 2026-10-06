@@ -2,15 +2,13 @@
 
 <img width="1600" height="1000" alt="Stealth Dock preview" src="preview.png" />
 
-A minimal auto-hiding dock for [Omarchy](https://omarchy.org/), built on Quickshell — a shelf for launching apps when your hands want a mouse instead of a keybind. It runs by three rules:
+A minimal auto-hiding dock for [Omarchy](https://omarchy.org/), built on Quickshell. It launches apps from the mouse so you do not have to bind a key, and three rules shape how it behaves:
 
-**Show up only when there's nothing to do.** Visibility follows your workspace: empty workspace → dock is visible, windows present → it's gone. Fully event-driven — Hyprland tells it what changed, it never polls. Hovering the bottom edge reveals it at any time as an override.
+- Show up only when there is nothing to do. An empty workspace keeps the dock visible, and windows present hide it. Hyprland events drive every update, so nothing polls, and hovering the bottom edge reveals it at any time.
+- Never disturb the layout. No exclusive zone and no layout negotiation, so panels do not jump and maximized windows do not shrink.
+- Hold what you add, and surface what is running. Apps you add sit where you put them, and running apps you have not added show up on their own, so unpinned work stays reachable.
 
-**Never disturb the layout.** No exclusive zone, no layout negotiation. Panels don't jump, maximized windows don't shrink — nothing on your screen ever moves because of this dock.
-
-**Hold only what you put on it.** Running-but-unpinned apps never appear on their own, so every icon sits exactly where you left it until you move it. On a tiling desktop your workspaces already *are* the running-app list — this is just a shelf for the moments when you'd rather click than type.
-
-The scope stays deliberately tight: launch, focus, minimize, pin, reorder. No window thumbnails, no subprocess tracking, no animations for their own sake.
+The scope stays tight: launch, focus, minimize, pin, reorder. No window thumbnails, no subprocess tracking, no animations for their own sake.
 
 ## Install (Omarchy)
 
@@ -18,9 +16,9 @@ The scope stays deliberately tight: launch, focus, minimize, pin, reorder. No wi
 omarchy plugin add https://github.com/burninc0de/burninc0de.dock.git --enable
 ```
 
-That clones the plugin into `~/.config/omarchy/plugins/burninc0de.dock` and starts it. Verify with `omarchy plugin list` — it should show up as `burninc0de.dock`, enabled.
+That clones the plugin into `~/.config/omarchy/plugins/burninc0de.dock` and starts it. Verify with `omarchy plugin list`; it should show up as `burninc0de.dock`, enabled.
 
-## Local fork (bashln) — extra features
+## Local fork (bashln): extra features
 
 This branch (`local-customizations`, remote `github.com/bashln/burninc0de.dock`)
 extends upstream with a more macOS-like dock. The code lives in `DockPanel.qml`;
@@ -28,17 +26,17 @@ state stays in `~/.local/state/omarchy/burninc0de.dock/` and settings in
 `settings.json`.
 
 ### Visibility modes
-`settings.json` → `mode`:
-- `always` — fixed, never hides (default). Reserves screen space, so tiling
+The `mode` key in `settings.json`:
+- `always`: fixed, never hides (default). Reserves screen space, so tiling
   windows stop above the dock.
-- `autohide` — hidden; reveals on bottom-edge hover. No reserved space, so
+- `autohide`: hidden; reveals on bottom-edge hover. No reserved space, so
   windows use the full screen height.
-- `smart` — previous behaviour: visible on empty workspaces only.
+- `smart`: previous behaviour, visible on empty workspaces only.
 
 Legacy `hideOnEmpty` is migrated to the closest mode.
 
 ### Settings
-Right-click empty dock space → **Settings**. Every control writes `settings.json`:
+Right-click empty dock space and choose Settings. Every control writes `settings.json`:
 
 | Key | Meaning |
 |-----|---------|
@@ -92,12 +90,12 @@ hl.layer_rule({ match = { namespace = "quickshelldock" }, blur = true, ignore_al
 
 ## Using the dock
 
-The happy path is all mouse-driven, no config file required. Right-click an **empty spot on the bar** and you get everything:
+The happy path is all mouse-driven, no config file required. Right-click an empty spot on the bar and you get everything:
 
-- **Add apps** — every running app that isn't on the dock yet shows up in a small list; click one to pin it. A fresh install needs zero config editing: the defaults ship in, everything else is right-click pin/unpin.
-- **Settings** — the **Settings…** row at the bottom of that same menu opens a small panel with live sliders for **icon size** and **icon spacing**; changes apply immediately and persist, with a **Reset to defaults** row at the bottom.
+- Add apps: every running app that isn't on the dock yet appears in a small list; click one to pin it. A fresh install needs no config editing, since the defaults ship in and everything else is right-click pin/unpin.
+- Settings: the Settings… row at the bottom of that same menu opens a small panel with live sliders for icon size and icon spacing. Changes apply immediately and persist, and a Reset to defaults row sits at the bottom.
 
-Right-click an **icon** instead of empty space for the three actions every dock agrees on:
+Right-click an icon instead of empty space for the actions every dock agrees on:
 
 | Action | Shown |
 |--------|-------|
@@ -107,11 +105,11 @@ Right-click an **icon** instead of empty space for the three actions every dock 
 
 A few more interactions, each detailed further down:
 
-- **Hover** an icon whose app has two or more windows to pick which one to focus.
-- **Drag** an icon sideways to reorder the dock; the order is saved.
-- **Click** a running app to minimize/restore it (Hyprland has no native minimize).
+- Hover an icon whose app has two or more windows to pick which one to focus.
+- Drag an icon sideways to reorder the dock; the order is saved.
+- Click a running app to minimize/restore it (Hyprland has no native minimize).
 
-Window lists, thumbnails and "App Details" are deliberately absent — they belong to the scope this dock doesn't have.
+Window lists, thumbnails and "App Details" are absent, since they belong to scope this dock does not have.
 
 ## Update / Disable / Uninstall
 
@@ -129,13 +127,13 @@ exactly as it was. Delete that folder for a factory reset. If you are updating f
 
 ## Adding & removing apps
 
-There are four ways to get an app onto the dock, in increasing order of convenience. Day-to-day use is the dock UI; your pins are the durable store (in `~/.local/state/omarchy/burninc0de.dock/`), so they survive a reinstall.
+There are three ways to get an app onto the dock, in increasing order of convenience. Day-to-day use is the dock UI; your pins are the durable store (in `~/.local/state/omarchy/burninc0de.dock/`), so they survive a reinstall.
 
-**Pin straight from the dock (recommended).** Right-click any empty spot on the bar: every running app that isn't on the dock yet shows up — click one to pin it. Under the hood this uses `--pin-window`, which resolves the window's class/appId back to a desktop entry (by file id, `StartupWMClass` or `Exec` basename) so the pinned icon launches properly. Pins layer on top of `UserConfig.qml` rather than replacing it, and an app already declared there is not duplicated.
+Pin straight from the dock (recommended). Right-click any empty spot on the bar: every running app that isn't on the dock yet shows up, so you can click one to pin it. Under the hood this uses `--pin-window`, which resolves the window's class/appId back to a desktop entry (by file id, `StartupWMClass` or `Exec` basename) so the pinned icon launches properly. Pins layer on top of `UserConfig.qml` rather than replacing it, and an app already declared there is not duplicated.
 
-**Edit the config.** `config/UserConfig.qml` is the declarative base and hot-reloads on save. See [Configuration](#configuration-userconfigqml) for the field reference.
+Edit the config. `config/UserConfig.qml` is the declarative base and hot-reloads on save. See [Configuration](#configuration-userconfigqml) for the field reference.
 
-**Pin from the command line.**
+Pin from the command line.
 
 ```sh
 bin/quickshelldock-pin chromium        # pin by desktop entry id
@@ -147,7 +145,7 @@ It reads the `.desktop` file for you, strips launcher field codes (`%U`, `%f`, �
 to `~/.local/state/omarchy/burninc0de.dock/pins.json`. The dock watches that file, so the icon appears immediately. Symlink
 the script into `~/.local/bin` to have it on `PATH`.
 
-**Unpinning and restoring.** Unpin works on every icon, wherever it came from. Apps pinned with the tool are dropped from `pins.json`; apps
+Unpinning and restoring. Unpin works on every icon, wherever it came from. Apps pinned with the tool are dropped from `pins.json`; apps
 declared in `UserConfig.qml` are recorded in `hidden.json` instead, because rewriting your hand-written QML isn't the
 dock's business. A hidden app isn't on the dock any more, so bring it back with `--restore-pick` (or the
 `Dock › Restore removed app` menu row):
@@ -157,20 +155,20 @@ bin/quickshelldock-pin --list-hidden
 bin/quickshelldock-pin --restore Obsidian
 ```
 
-If you renamed an app in `UserConfig.qml` — a "foot" entry labelled "Terminal", say — use `--restore` with the
+If you renamed an app in `UserConfig.qml`, say a "foot" entry labelled "Terminal", use `--restore` with the
 dock's display name, not the desktop entry's.
 
 ## Configuration (UserConfig.qml)
 
-Most people never need this — the right-click pin flow and `quickshelldock-pin` cover adding, removing and reordering, and your pins are the durable store (they live in `~/.local/state/omarchy/burninc0de.dock/`, so they survive a reinstall).
+Most people never need this. The right-click pin flow and `quickshelldock-pin` cover adding, removing and reordering, and your pins are the durable store (they live in `~/.local/state/omarchy/burninc0de.dock/`, so they survive a reinstall).
 
 `UserConfig.qml` is an optional override of the default app list in `config/DockApps.qml`. It only matters for the few cases the pin tool can't express, because the tool stores just an id/name/icon/cmd/appId:
 
-- **Title matching** — set `match` to match a window by title substring, for webapps whose class/appId don't identify them cleanly (e.g. Gmail, Photopea).
-- **No minimize** — set `minimizable: false` so clicking a running app always focuses it instead of minimize/restore.
-- **Custom apps** — a non-running or non-`.desktop` app (a custom binary with its own icon path) that you want on the dock before it's ever launched.
+- Title matching: set `match` to match a window by title substring, for webapps whose class/appId don't identify them cleanly (e.g. Gmail, Photopea).
+- No minimize: set `minimizable: false` so clicking a running app always focuses it instead of minimize/restore.
+- Custom apps: a non-running or non-`.desktop` app (a custom binary with its own icon path) that you want on the dock before it's ever launched.
 
-To use it, copy `config/UserConfig.example.qml` to `config/UserConfig.qml` and edit. It's gitignored (your personal list stays out of the repo) and hot-reloads via Quickshell — no restart needed. Without one, the defaults in `config/DockApps.qml` apply.
+To use it, copy `config/UserConfig.example.qml` to `config/UserConfig.qml` and edit. It's gitignored (your personal list stays out of the repo) and hot-reloads via Quickshell, so no restart is needed. Without one, the defaults in `config/DockApps.qml` apply.
 
 ### App entry fields
 
@@ -187,7 +185,7 @@ To use it, copy `config/UserConfig.example.qml` to `config/UserConfig.qml` and e
 
 If no `match` or `appId` is set, the dock extracts the binary name from `cmd` and compares it against the app's `appId` and `class`.
 
-Fields come straight out of the app's `.desktop` file: `Icon=` → `icon`, `Exec=` → `cmd`, `StartupWMClass=` → `appId`.
+Fields come straight out of the app's `.desktop` file: `Icon=` becomes `icon`, `Exec=` becomes `cmd`, and `StartupWMClass=` becomes `appId`.
 
 ### showOnFloating
 
@@ -197,9 +195,9 @@ When `true`, workspaces that contain only floating windows are treated as empty 
 
 ### Hover window list
 
-Hovering an icon whose app has **two or more** windows open pops a small list of them after a short delay. Clicking
+Hovering an icon whose app has two or more windows open pops a small list of them after a short delay. Clicking
 an entry focuses that window and hides the dock, same as clicking the icon itself does. Single-window apps skip the
-list — clicking the icon goes straight to the window.
+list; clicking the icon goes straight to the window.
 
 ### Reordering
 
@@ -213,7 +211,7 @@ the config order.
 
 ### Show / hide
 
-Visibility is driven by the workspace, not by timers: empty workspace → dock visible; windows present → dock hidden.
+Visibility follows the workspace, not timers: an empty workspace keeps the dock visible, and windows present hide it.
 Hiding waits 500ms after the pointer leaves so moving between the dock and the bottom edge doesn't flicker, and both
 show and hide slide over 200ms. Hovering the bottom edge reveals the dock at any time.
 
@@ -228,12 +226,12 @@ This works for any app that has toplevels on the current workspace. Apps on othe
 
 ### Badges
 
-A red unread counter is shown above apps whose window title contains an `Inbox (N)` marker (Gmail webapps). It's
+An unread counter is shown above apps whose window title contains an `Inbox (N)` marker (Gmail webapps). It's
 driven by Hyprland `windowtitle` events, so it updates without polling.
 
 ### Workspace detection
 
-The dock uses a two-tier approach: `Hyprland.toplevels` (fast, via `rawEvent`) covers the common cases: empty workspace keeps the dock visible, occupied hides it. When `showOnFloating` is enabled and toplevels exist, it falls back to `hyprctl clients -j` to check whether only floating windows are present, since the Quickshell API doesn't expose a `floating` flag on toplevels.
+The dock uses a two-tier approach. `Hyprland.toplevels` (fast, via `rawEvent`) covers the common cases, keeping the dock visible on an empty workspace and hiding it when occupied. When `showOnFloating` is enabled and toplevels exist, it falls back to `hyprctl clients -j` to check whether only floating windows are present, since the Quickshell API doesn't expose a `floating` flag on toplevels.
 
 ## Running outside Omarchy
 
@@ -260,8 +258,8 @@ exec-once = quickshell -p /path/to/burninc0de.dock
 
 ## Caveats
 
-- **Multiple Quickshell instances** &mdash; Quickshell doesn't support running multiple independent shells well. If you already have another Quickshell-based panel or bar, this dock will likely conflict. Test in an isolated Hyprland session first.
-- **One dock per machine** &mdash; make sure only one copy of the plugin is installed. A leftover clone under a different plugin id runs a second dock on top of this one.
+- Multiple Quickshell instances: Quickshell doesn't support running multiple independent shells well. If you already have another Quickshell-based panel or bar, this dock will likely conflict. Test in an isolated Hyprland session first.
+- One dock per machine: make sure only one copy of the plugin is installed. A leftover clone under a different plugin id runs a second dock on top of this one.
 
 ## Project structure
 
