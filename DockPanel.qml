@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import qs.Commons
 import "config"
+import "services"
 import Quickshell.Io
 
 PanelWindow {
@@ -103,11 +104,9 @@ PanelWindow {
   property string clientsJson: ""
   property int _badgeTick: 0
 
-  // Byte ceilings for everything whose length the dock doesn't control:
-  // state files are user-writable and hyprctl output scales with open
-  // windows, so neither may reach this long-lived process unbounded. Both
-  // are orders of magnitude above any legitimate data.
-  readonly property int maxStateBytes: 65536
+  // Byte ceiling for hyprctl output, which scales with open windows, so it
+  // never reaches this long-lived process unbounded. State-file ceilings now
+  // live in StateStore.
   readonly property int maxClientsBytes: 1048576
 
   // Drag-to-reorder state. Only one icon can be dragged at a time, so this
@@ -117,23 +116,6 @@ PanelWindow {
   property real dragGrabOffset: 0
   readonly property bool dragging: dragName !== ""
 
-  // Icon order survives restarts here. Kept out of the config dir so a
-  // git pull never fights with it. State lives under XDG_STATE_HOME/omarchy/burninc0de.dock
-  // (i.e. ~/.local/state/omarchy/burninc0de.dock) — namespaced under omarchy/
-  // and using the plugin id so it's 100% collision-free.
-  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME")
-    || (Quickshell.env("HOME") + "/.local/state")) + "/omarchy/burninc0de.dock"
-  // Legacy locations before the final burninc0de.dock namespacing — migrated on startup.
-  readonly property string legacyStateDir: (Quickshell.env("XDG_STATE_HOME")
-    || (Quickshell.env("HOME") + "/.local/state")) + "/quickshelldock"
-  readonly property string legacyStateDir2: (Quickshell.env("XDG_STATE_HOME")
-    || (Quickshell.env("HOME") + "/.local/state")) + "/omarchy/dock"
-  readonly property string legacyStateDir3: (Quickshell.env("XDG_STATE_HOME")
-    || (Quickshell.env("HOME") + "/.local/state")) + "/omarchy/stealthdock"
-  readonly property string orderPath: stateDir + "/order.json"
-  readonly property string pinsPath: stateDir + "/pins.json"
-  readonly property string hiddenPath: stateDir + "/hidden.json"
-  readonly property string settingsPath: stateDir + "/settings.json"
   // Resolved relative to this file, NOT Quickshell.shellDir: Omarchy loads
   // plugins into its own shell instance, so shellDir points at
   // /usr/share/omarchy/shell and every execDetached would silently no-op.
@@ -141,9 +123,6 @@ PanelWindow {
     const u = Qt.resolvedUrl("./bin/quickshelldock-pin").toString()
     return decodeURIComponent(u.replace(/^file:\/\//, ""))
   }
-  property var savedOrder: []
-  property var pinnedApps: []
-  property var hiddenApps: []
 
   // Right-click context menu state.
   property bool contextOpen: false
@@ -208,85 +187,6 @@ PanelWindow {
     }
   }
 
-  Process {
-    id: mkdirProcess
-    // Ensures the new state dir exists and migrates any files from legacy
-    // locations (quickshelldock, omarchy/dock, omarchy/stealthdock). Only copies
-    // files that don't already exist so a fresh install never clobbers data.
-    command: ["sh", "-c", "mkdir -p \"$1\"; for legacy in \"$2\" \"$3\" \"$4\"; do if [ -d \"$legacy\" ]; then for f in order.json pins.json hidden.json; do [ -f \"$legacy/$f\" ] && [ ! -e \"$1/$f\" ] && cp -n -- \"$legacy/$f\" \"$1/$f\" 2>/dev/null; done; fi; done", "sh", root.stateDir, root.legacyStateDir, root.legacyStateDir2, root.legacyStateDir3]
-    running: true
-  }
-
-  // State files are user-writable, so their byte length is untrusted: the
-  // dock never loads them through FileView (which buffers whole files) but
-  // reads through head -c. The FileViews below are watchers only —
-  // preload: false keeps them from buffering any text while still firing
-  // fileChanged. bin/quickshelldock-pin renames fully-written temp files
-  // into place, so a read started by fileChanged always sees complete JSON.
-  Process {
-    id: stateReader
-    property string kind: ""
-    // Reads requested while one is in flight drain here, oldest first. A
-    // single slot would drop every request but the last: startup fires all
-    // three reads back-to-back and pins would lose to hidden.
-    property var pendingQueue: []
-    stdout: StdioCollector {
-      onStreamFinished: root.consumeStateFile(stateReader.kind, this.text)
-    }
-    // Missing files at first boot are normal; keep head's stderr out of the log.
-    stderr: StdioCollector {}
-    onExited: {
-      if (stateReader.pendingQueue.length === 0) return
-      const next = stateReader.pendingQueue.shift()
-      root.readStateFile(next.kind, next.path)
-    }
-  }
-
-  function readStateFile(kind, path) {
-    if (stateReader.running) {
-      stateReader.pendingQueue.push({ kind: kind, path: path })
-      return
-    }
-    stateReader.kind = kind
-    stateReader.command = ["head", "-c", String(root.maxStateBytes), "--", path]
-    stateReader.running = true
-  }
-
-  function parseJsonArray(raw, label) {
-    try {
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : []
-    } catch (e) {
-      if (raw.length >= root.maxStateBytes)
-        console.warn("quickshelldock:", label, "is at or over the",
-          root.maxStateBytes, "byte read ceiling; ignoring it")
-      return []
-    }
-  }
-
-  function consumeStateFile(kind, raw) {
-    if (kind === "order") savedOrder = parseJsonArray(raw, "order.json")
-    else if (kind === "pins") pinnedApps = parseJsonArray(raw, "pins.json")
-    else if (kind === "hidden") hiddenApps = parseJsonArray(raw, "hidden.json")
-    else if (kind === "settings") {
-      applySettings(parseJsonObject(raw, "settings.json"))
-      return
-    }
-    else return
-    if (!dragging) rebuildModel()
-  }
-
-  function parseJsonObject(raw, label) {
-    try {
-      const parsed = JSON.parse(raw)
-      return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {}
-    } catch (e) {
-      if (raw.length >= root.maxStateBytes)
-        console.warn("quickshelldock:", label, "is at or over the",
-          root.maxStateBytes, "byte read ceiling; ignoring it")
-      return {}
-    }
-  }
 
   // Clamped at ingestion like every other untrusted input: settings.json is
   // user-writable, so a bogus value can only saturate, not break layout.
@@ -309,54 +209,23 @@ PanelWindow {
   }
 
   function persistSettings() {
-    settingsFile.setText(JSON.stringify(
-      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled, showMenu: showMenu }, null, 2) + "\n")
+    StateStore.writeSettings(
+      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled, showMenu: showMenu })
   }
 
-  // Write-only handle for drag order. Never loaded, so nothing from disk is
-  // buffered here either.
-  FileView {
-    id: orderFile
-    path: root.orderPath
-    preload: false
-    printErrors: false
-    atomicWrites: true
-  }
-
-  // Config apps removed from the dock. Suppressed here rather than by
-  // rewriting UserConfig.qml, which is the user's to own.
-  FileView {
-    id: hiddenFile
-    path: root.hiddenPath
-    preload: false
-    printErrors: false
-    watchChanges: true
-    onFileChanged: readStateFile("hidden", root.hiddenPath)
-  }
-
-  // Written by bin/quickshelldock-pin, never by the dock. Watching it is what
-  // makes a pin from the Omarchy menu show up without a restart.
-  FileView {
-    id: pinsFile
-    path: root.pinsPath
-    preload: false
-    printErrors: false
-    watchChanges: true
-    onFileChanged: readStateFile("pins", root.pinsPath)
-  }
-
-  // Settings are written only by this process (Settings panel / reset), so
-  // unlike pins/hidden there is no external writer to watch for.
-  FileView {
-    id: settingsFile
-    path: root.settingsPath
-    preload: false
-    printErrors: false
-    atomicWrites: true
-  }
 
 
   ListModel { id: appModel }
+
+  // StateStore owns the file reads; rebuild when a read lands. Settings apply
+  // separately so a size change reflows without rebuilding the list.
+  Connections {
+    target: StateStore
+    function onOrderLoaded() { if (!root.dragging) root.rebuildModel() }
+    function onPinsLoaded() { if (!root.dragging) root.rebuildModel() }
+    function onHiddenLoaded() { if (!root.dragging) root.rebuildModel() }
+    function onSettingsLoaded() { root.applySettings(StateStore.settings) }
+  }
 
   function normalizeApp(app, pinned) {
     return {
@@ -380,8 +249,8 @@ PanelWindow {
   // running window, so a hidden-but-running app can resurface through
   // showRunningUnpinned instead of vanishing while open.
   function isHiddenApp(app) {
-    if (hiddenApps.indexOf(app.name) >= 0) return true
-    return app.entryId !== "" && hiddenApps.indexOf(app.entryId) >= 0
+    if (StateStore.hidden.indexOf(app.name) >= 0) return true
+    return app.entryId !== "" && StateStore.hidden.indexOf(app.entryId) >= 0
   }
 
   // Declaration order in the config is the baseline; anything the user has
@@ -398,7 +267,7 @@ PanelWindow {
     // Pins append after the configured apps. An app already declared in
     // UserConfig.qml wins, so pinning something that is already on the dock
     // is a no-op rather than a duplicate icon.
-    for (const pin of pinnedApps) {
+    for (const pin of StateStore.pins) {
       const entry = normalizeApp(pin, true)
       let duplicate = false
       for (const app of apps) {
@@ -450,11 +319,11 @@ PanelWindow {
       }
     }
 
-    if (savedOrder.length > 0) {
+    if (StateStore.order.length > 0) {
       let byName = {}
       for (const app of apps) byName[app.name] = app
       let sorted = []
-      for (const name of savedOrder) {
+      for (const name of StateStore.order) {
         if (byName[name]) {
           sorted.push(byName[name])
           delete byName[name]
@@ -475,8 +344,7 @@ PanelWindow {
       if (appModel.get(i).runningOnly) continue
       names.push(appModel.get(i).name)
     }
-    savedOrder = names
-    orderFile.setText(JSON.stringify(names, null, 2) + "\n")
+    StateStore.writeOrder(names)
   }
 
   // Called on every pointer move during a drag: figure out which slot the
@@ -1069,10 +937,6 @@ PanelWindow {
   }
 
   Component.onCompleted: {
-    readStateFile("order", root.orderPath)
-    readStateFile("pins", root.pinsPath)
-    readStateFile("hidden", root.hiddenPath)
-    readStateFile("settings", root.settingsPath)
     rebuildModel()
     updateWorkspaceEmpty()
     // Build desktop Name cache in background so first pin-menu open is

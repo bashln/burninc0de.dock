@@ -18,6 +18,7 @@
 - Every `logic/*.js` module ends with `if (typeof module !== "undefined" && module.exports) module.exports = { ... }`.
 - `logic/*.js` must not reference QML globals (`root`, `Quickshell`, `Hyprland`, `Color`). It takes plain arguments and returns plain data.
 - QML singletons are declared in `services/qmldir`, modeled on `config/qmldir`.
+- QML service singletons use `Quickshell.Singleton` as their root, not `QtObject`: `Singleton` has a default `children` property, so `Process` and `FileView` can nest. Add `import QtQml` for the `Component.onCompleted` attached type.
 - Behavior must not change. Defaults stay: iconSize 40, spacing 12, spacerWidth 24, mode `always`, magnify true, showMenu true.
 - Verify each task with `omarchy restart shell` and a clean `log.qslog` before committing.
 - Run `test/run.sh` before every commit. It runs the node logic tests, the QJSEngine logic tests through `qmltestrunner`, and `qmllint`.
