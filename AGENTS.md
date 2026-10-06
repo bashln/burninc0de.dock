@@ -7,6 +7,17 @@ Hyprland dock panel built with Quickshell (QML). No build step; loaded directly 
 - `Dock.qml`: entrypoint, instantiates `DockPanel` per screen via `Variants`
 - `DockPanel.qml`: the dock UI. Auto-hide, launch debounce (`busy` per icon, cleared when a matching toplevel appears), Hyprland toplevel matching, window focus
 - `config/DockApps.qml`: singleton defining the ordered app list (name, icon, cmd, optional `match`)
+- `logic/*.js`: pure rules (state parsing, settings clamp, matching, icons, model). Plain functions over plain data, each ending with a CommonJS guard so `node --test` can require it. No QML globals.
+- `services/*.qml`: singletons shared across every per-screen panel. `StateStore` (state IO), `Settings` (schema), `WindowService` (matching, focus), `IconResolver` (desktop map, icons), `DockIpc` (IPC). Root is `Quickshell.Singleton`, not `QtObject`, so `Process`/`FileView` can nest; `import QtQml` for `Component.onCompleted`.
+- `model/DockModel.qml`: per-panel builder returning the assembled app array. The `ListModel` stays in `DockPanel` because drag uses `move()` and the magnifier reads it by index.
+- `test/`: `test/*.test.js` (node), `test/qml/tst_logic.qml` (QJSEngine via `qmltestrunner`), `test/run.sh` (runs both plus `qmllint`).
+
+## Architecture and tests
+
+- `DockPanel.qml` keeps only orchestration and the visual tree. Data lives in the singletons, rules live in `logic/`.
+- Run `test/run.sh` before committing. It runs node logic tests, the QJSEngine test (`qmltestrunner`), and `qmllint`. QML singletons are declared in `services/qmldir`, the model in `model/qmldir`.
+- `test/run.sh` creates a temp import dir with `qs/Commons` symlinked from `/usr/share/omarchy/shell/Commons` so `qmllint` resolves `qs.Commons`. It gates on `Error:` lines only; Quickshell-type warnings are known noise.
+- External control: `qs ipc -p /usr/share/omarchy/shell call dock <toggle|settings|pin> [name]`. The `-p` selects the omarchy shell instance; without it `qs ipc` looks for a default config.
 
 ## Pinning
 

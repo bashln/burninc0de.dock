@@ -187,6 +187,14 @@ PanelWindow {
     function onHiddenLoaded() { if (!root.dragging) root.rebuildModel() }
   }
 
+  // External control: `qs ipc call dock toggle|settings|pin <name>`.
+  Connections {
+    target: DockIpc
+    function onToggleRequested() { root.dockVisible = !root.dockVisible }
+    function onSettingsRequested() { root.openSettings(dockBar.width / 2) }
+    function onPinRequested(name) { Quickshell.execDetached([root.pinTool, "--pin-window", name]) }
+  }
+
   DockModel { id: dockModel }
 
   // Rebuild the visible app list through the tested model builder. The

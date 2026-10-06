@@ -2,3 +2,4 @@ singleton StateStore 1.0 StateStore.qml
 singleton Settings 1.0 Settings.qml
 singleton WindowService 1.0 WindowService.qml
 singleton IconResolver 1.0 IconResolver.qml
+singleton DockIpc 1.0 DockIpc.qml
