@@ -12,9 +12,14 @@
 - S1c: configurable running-indicator styles (dot, dots, dashes, solid,
   count), selectable from a Settings group. `dot` is the default and looks
   exactly as before.
+- S1d: dynamic transparency. `transparencyMode: dynamic` eases the bar's
+  alpha between `minAlpha` and `maxAlpha` with the distance of the nearest
+  window on the active workspace to the dock (`logic/transparency.js`,
+  tested); `fixed` (default) keeps today's theme alpha. Settings panel gains
+  the mode rows and min/max alpha sliders.
 
-Remaining S1 phases: S1d dynamic transparency, S1e click/scroll actions,
-S1f intellihide, S1g dock position on four edges, S1h urgent feedback.
+Remaining S1 phases: S1e click/scroll actions, S1f intellihide, S1g dock
+position on four edges, S1h urgent feedback.
 
 ### S0: architecture and settings
 
