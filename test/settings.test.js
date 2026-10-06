@@ -106,3 +106,7 @@ test("normalize ignores unknown keys", () => {
   const n = S.normalize({ wat: true });
   assert.strictEqual(n.wat, undefined);
 });
+
+test("normalize is a fixed point on DEFAULTS", () => {
+  assert.deepStrictEqual(S.normalize(S.DEFAULTS), S.DEFAULTS);
+});
