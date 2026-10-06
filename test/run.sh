@@ -15,10 +15,14 @@ QT_QPA_PLATFORM=offscreen qmltestrunner -input "$ROOT/test/qml"
 
 echo "== qmllint =="
 mapfile -t QMLFILES < <(find "$ROOT" -maxdepth 2 -name '*.qml' -not -path '*/test/*' | sort)
-qmllint -I "$IMPORTS" -I /usr/lib/qt6/qml "${QMLFILES[@]}" > /tmp/qmllint.out 2>&1 || true
-if grep -q 'Error:' /tmp/qmllint.out; then
+if ! qmllint -I "$IMPORTS" -I /usr/lib/qt6/qml "${QMLFILES[@]}" > "$IMPORTS/qmllint.out" 2>&1; then
+  echo "qmllint failed to run or reported errors:"
+  cat "$IMPORTS/qmllint.out"
+  exit 1
+fi
+if grep -q 'Error:' "$IMPORTS/qmllint.out"; then
   echo "qmllint reported errors:"
-  grep 'Error:' /tmp/qmllint.out
+  grep 'Error:' "$IMPORTS/qmllint.out"
   exit 1
 fi
 echo "qmllint: no errors"

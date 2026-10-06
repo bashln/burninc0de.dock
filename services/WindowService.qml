@@ -14,10 +14,6 @@ Singleton {
     return Matching.execTokenize(exec)
   }
 
-  function matchesApp(app, win) {
-    return Matching.matchesApp(app, win)
-  }
-
   function getToplevelsForApp(app) {
     let results = []
     for (const tl of Hyprland.toplevels.values) {

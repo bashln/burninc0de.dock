@@ -9,11 +9,6 @@ import Quickshell.Io
 Singleton {
   id: ipc
 
-  readonly property string pinTool: {
-    const u = Qt.resolvedUrl("../bin/quickshelldock-pin").toString()
-    return decodeURIComponent(u.replace(/^file:\/\//, ""))
-  }
-
   signal toggleRequested()
   signal settingsRequested()
   signal pinRequested(string name)

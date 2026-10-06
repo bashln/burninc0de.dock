@@ -43,3 +43,11 @@ test("normalize does not mutate its input", () => {
   S.normalize(raw);
   assert.strictEqual(raw.iconSize, 1000);
 });
+
+test("normalize falls back for a non-numeric int", () => {
+  assert.strictEqual(S.normalize({ spacing: "abc" }).spacing, S.DEFAULTS.spacing);
+});
+
+test("normalize clamps spacerWidth above the maximum", () => {
+  assert.strictEqual(S.normalize({ spacerWidth: 500 }).spacerWidth, 96);
+});

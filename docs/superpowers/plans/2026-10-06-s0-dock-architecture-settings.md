@@ -19,7 +19,7 @@
 - `logic/*.js` must not reference QML globals (`root`, `Quickshell`, `Hyprland`, `Color`). It takes plain arguments and returns plain data.
 - QML singletons are declared in `services/qmldir`, modeled on `config/qmldir`.
 - QML service singletons use `Quickshell.Singleton` as their root, not `QtObject`: `Singleton` has a default `children` property, so `Process` and `FileView` can nest. Add `import QtQml` for the `Component.onCompleted` attached type.
-- Behavior must not change. Defaults stay: iconSize 40, spacing 12, spacerWidth 24, mode `always`, magnify true, showMenu true.
+- Behavior must not change. Defaults stay: iconSize 54, spacing 12, spacerWidth 24, mode `always`, magnify true, showMenu true.
 - Verify each task with `omarchy restart shell` and a clean `log.qslog` before committing.
 - Run `test/run.sh` before every commit. It runs the node logic tests, the QJSEngine logic tests through `qmltestrunner`, and `qmllint`.
 - `test/run.sh` resolves `qs.Commons` for `qmllint` by creating a temp import dir with a `qs/Commons` symlink to `/usr/share/omarchy/shell/Commons`, then passes `-I` that dir plus `/usr/lib/qt6/qml`.
@@ -254,7 +254,7 @@ Expected: FAIL, module not found.
 
 - [ ] **Step 3: Implement `logic/settings.js`**
 
-`DEFAULTS = { iconSize: 40, spacing: 12, spacerWidth: 24, mode: "always", magnify: true, showMenu: true }`. `MODES = ["always", "autohide", "smart"]`. `normalize(raw)` builds a fresh object, rounds and clamps each int to its range, validates `mode` against `MODES`, then falls back through legacy `hideOnEmpty` then `hideOnEmptyWorkspace` mapping `true -> "autohide"`, `false -> "smart"`. Booleans only accept `typeof === "boolean"`. End with the CommonJS guard.
+`DEFAULTS = { iconSize: 54, spacing: 12, spacerWidth: 24, mode: "always", magnify: true, showMenu: true }`. `MODES = ["always", "autohide", "smart"]`. `normalize(raw)` builds a fresh object, rounds and clamps each int to its range, validates `mode` against `MODES`, then falls back through legacy `hideOnEmpty` then `hideOnEmptyWorkspace` mapping `true -> "autohide"`, `false -> "smart"`. Booleans only accept `typeof === "boolean"`. End with the CommonJS guard.
 
 - [ ] **Step 4: Run the test and watch it pass**
 
@@ -567,7 +567,7 @@ Then append `Model` to `test/qml/tst_logic.qml` and run `test/run.sh`.
 
 - [ ] **Step 5: Implement `model/DockModel.qml`**
 
-Wrap a `ListModel` exposed as `property alias apps: appModel`. `rebuild()` builds the config list from `DockApps.apps`, calls `Model.mergeApps`, calls `IconResolver` and `WindowService` to build the `windows` array, calls `Model.runningUnpinned`, then `Model.applyOrder`, then repopulates the ListModel. `persistOrder()` skips `runningOnly` entries and calls `StateStore.writeOrder`.
+A `QtObject` component with `normalize(app, pinned)` and `build(includeRunning)`. `build` normalizes `DockApps.apps` and `StateStore.pins`, calls `Model.mergeApps`, collects unclaimed `Hyprland.toplevels` windows (resolving label and icon through `IconResolver`), calls `Model.runningUnpinned`, and returns `Model.applyOrder(apps, StateStore.order)`. Add `model/qmldir` with `DockModel 1.0 DockModel.qml` and `import "model"` in `DockPanel.qml`.
 
 - [ ] **Step 6: Wire `DockPanel.qml`**
 

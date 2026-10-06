@@ -21,7 +21,9 @@ function mergeApps(configApps, pins, hidden, isHidden) {
 
 function applyOrder(apps, savedOrder) {
   if (!savedOrder || savedOrder.length === 0) return apps.slice();
-  const byName = {};
+  // Object.create(null) so a name like "constructor" cannot collide with a
+  // prototype key.
+  const byName = Object.create(null);
   for (const app of apps) byName[app.name] = app;
   const sorted = [];
   for (const name of savedOrder) {
@@ -35,9 +37,9 @@ function applyOrder(apps, savedOrder) {
 }
 
 function runningUnpinned(apps, windows, matches) {
-  const used = {};
+  const used = Object.create(null);
   for (const app of apps) used[app.name] = true;
-  const seen = {};
+  const seen = Object.create(null);
   const out = [];
   for (const w of windows || []) {
     if (!w.key || seen[w.key]) continue;

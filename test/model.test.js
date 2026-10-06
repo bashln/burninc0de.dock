@@ -73,3 +73,15 @@ test("runningUnpinned skips a window with no key", () => {
   const out = M.runningUnpinned([], [{ key: "", cls: "", appId: "", title: "", label: "", icon: "" }], Match.matchesApp);
   assert.deepStrictEqual(out, []);
 });
+
+test("applyOrder handles a name that shadows an object prototype key", () => {
+  const out = M.applyOrder([{ name: "constructor" }], ["constructor"]);
+  assert.strictEqual(out.length, 1);
+});
+
+test("runningUnpinned handles a prototype-shadowing label", () => {
+  const out = M.runningUnpinned([{ name: "constructor" }], [
+    { key: "x", cls: "x", appId: "x", title: "", label: "constructor", icon: "" },
+  ], Match.matchesApp);
+  assert.strictEqual(out[0].name, "x");
+});

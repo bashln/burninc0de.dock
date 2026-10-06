@@ -119,6 +119,9 @@ Singleton {
   }
 
   function consumeStateFile(kind, raw) {
+    if (raw.length >= store.maxStateBytes)
+      console.warn("quickshelldock:", kind + ".json", "is at or over the",
+        store.maxStateBytes, "byte read ceiling; ignoring it")
     if (kind === "order") {
       order = StateLogic.parseJsonArray(raw, store.maxStateBytes)
       orderLoaded()

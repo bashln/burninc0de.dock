@@ -69,7 +69,7 @@ saturate, never break layout.
 
 | Field | Type | Range | Default |
 |---|---|---|---|
-| `iconSize` | int | 32..96 | 40 |
+| `iconSize` | int | 32..96 | 54 |
 | `spacing` | int | 0..48 | 12 |
 | `spacerWidth` | int | 0..96 | 24 |
 | `mode` | enum `always` / `autohide` / `smart` | | `always` |
