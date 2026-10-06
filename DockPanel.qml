@@ -542,12 +542,20 @@ PanelWindow {
   }
 
   function showDockBar() {
+    showTimer.stop()
     hideTimer.stop()
     dockVisible = true
   }
 
+  // Show after showDelay; a zero delay shows at once.
+  function requestShow() {
+    if (Settings.showDelay <= 0) { showDockBar(); return }
+    showTimer.restart()
+  }
+
   function scheduleHide() {
     if (dockMode === "always") return
+    showTimer.stop()
     hideTimer.restart()
   }
 
@@ -668,13 +676,27 @@ PanelWindow {
 
     HoverHandler {
       id: triggerHover
-      onHoveredChanged: hovered ? root.showDockBar() : root.scheduleHide()
+      onHoveredChanged: {
+        if (hovered) {
+          root.requestShow()
+        } else {
+          showTimer.stop()
+          root.scheduleHide()
+        }
+      }
     }
   }
 
   Timer {
+    id: showTimer
+    interval: Settings.showDelay
+    repeat: false
+    onTriggered: root.showDockBar()
+  }
+
+  Timer {
     id: hideTimer
-    interval: 500
+    interval: Settings.hideDelay
     repeat: false
     onTriggered: {
       if (root.dockMode === "always") return
@@ -712,7 +734,7 @@ PanelWindow {
     transitions: Transition {
       NumberAnimation {
         property: "anchors.bottomMargin"
-        duration: 200
+        duration: Settings.animationTime
         easing.type: Easing.InOutQuad
       }
     }
@@ -1819,6 +1841,211 @@ PanelWindow {
             handle: Rectangle {
               x: spacerSlider.leftPadding + spacerSlider.visualPosition * spacerSlider.availableWidth - width / 2
               y: spacerSlider.topPadding + spacerSlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
+            }
+          }
+        }
+
+        Text {
+          text: "Timing"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Show delay"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: showDelaySlider.value + " ms"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: showDelaySlider
+            width: parent.width
+            from: 0
+            to: 1000
+            stepSize: 10
+            value: Settings.showDelay
+            onMoved: {
+              Settings.showDelay = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: showDelaySlider.leftPadding
+              y: showDelaySlider.topPadding + showDelaySlider.availableHeight / 2 - height / 2
+              width: showDelaySlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: showDelaySlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: showDelaySlider.leftPadding + showDelaySlider.visualPosition * showDelaySlider.availableWidth - width / 2
+              y: showDelaySlider.topPadding + showDelaySlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
+            }
+          }
+        }
+
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Hide delay"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: hideDelaySlider.value + " ms"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: hideDelaySlider
+            width: parent.width
+            from: 0
+            to: 2000
+            stepSize: 10
+            value: Settings.hideDelay
+            onMoved: {
+              Settings.hideDelay = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: hideDelaySlider.leftPadding
+              y: hideDelaySlider.topPadding + hideDelaySlider.availableHeight / 2 - height / 2
+              width: hideDelaySlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: hideDelaySlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: hideDelaySlider.leftPadding + hideDelaySlider.visualPosition * hideDelaySlider.availableWidth - width / 2
+              y: hideDelaySlider.topPadding + hideDelaySlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
+            }
+          }
+        }
+
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Animation"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: animationSlider.value + " ms"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: animationSlider
+            width: parent.width
+            from: 0
+            to: 1000
+            stepSize: 10
+            value: Settings.animationTime
+            onMoved: {
+              Settings.animationTime = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: animationSlider.leftPadding
+              y: animationSlider.topPadding + animationSlider.availableHeight / 2 - height / 2
+              width: animationSlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: animationSlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: animationSlider.leftPadding + animationSlider.visualPosition * animationSlider.availableWidth - width / 2
+              y: animationSlider.topPadding + animationSlider.availableHeight / 2 - height / 2
               width: 14
               height: 14
               radius: 7
