@@ -8,6 +8,7 @@ import "config"
 import "services"
 import "model"
 import "logic/indicator.js" as Indicator
+import "logic/transparency.js" as Transparency
 import Quickshell.Io
 
 PanelWindow {
@@ -44,7 +45,8 @@ PanelWindow {
   // the dock bar without clipping or dynamic height flicker. exclusiveZone
   // is -1 either way, so nothing on screen gets pushed around.
   // 320 fits ~8 pin rows (8*26+7*1+16 = 231) + dock bar (78) + gap/margin (9).
-  implicitHeight: 320
+  readonly property int panelDepth: 320
+  implicitHeight: panelDepth
 
   readonly property int dockHeight: 68
   readonly property real gap: 6
@@ -84,6 +86,14 @@ PanelWindow {
   // Glass translucency derived from the theme's bar alpha (clamped so it stays
   // a glass surface even with an opaque theme, without going invisible).
   readonly property real glassAlpha: Math.max(0.35, Math.min(0.75, Color.bar.background.a))
+  // Dynamic transparency: 0..1 nearness of the nearest visible window to the
+  // bar (see logic/transparency.js) and the alpha the bar renders with.
+  // `fixed` keeps the theme alpha for every nearness value.
+  property real dynamicNear: 0
+  property real barAlpha: Transparency.alphaFor(Settings.transparencyMode, dynamicNear, Settings.minAlpha, Settings.maxAlpha, root.glassAlpha)
+  Behavior on barAlpha {
+    NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
+  }
   // Local flag: DockApps singleton may survive plugin reloads without new
   // properties — do not depend on cross-file singleton for this.
   property bool showRunningUnpinned: true
@@ -282,6 +292,53 @@ PanelWindow {
     if (clientsJson.length === 0) return
     const empty = checkWorkspaceEmpty()
     if (empty !== workspaceEmpty) workspaceEmpty = empty
+  }
+
+  // Global (Hyprland layout) rectangle of this screen's dock bar. The panel
+  // window hugs the screen edge, so the bar's global y is the monitor top +
+  // screen height - panel depth + bar y; x is monitor x + bar x.
+  function dockBarRect() {
+    const m = root.hlMonitor
+    if (!m || !root.screen) return null
+    return {
+      x: m.x + dockBar.x,
+      y: m.y + root.screen.height - root.panelDepth + dockBar.y,
+      w: dockBar.width,
+      h: dockBar.height,
+    }
+  }
+
+  // Plain rectangles for the windows actually rendered behind this screen's
+  // dock: only windows on the monitor's active workspace (Hyprland reports
+  // `visible: true` even for windows parked on inactive workspaces, so the
+  // workspace check is the one that matters; special/minimized workspaces
+  // never match an active id).
+  function visibleWindowRects() {
+    const out = []
+    const wsId = root.monitorWsId
+    if (wsId == null || wsId < 0) return out
+    for (const tl of Hyprland.toplevels.values) {
+      const ipc = tl.lastIpcObject
+      if (!ipc || ipc.visible === false) continue
+      if (tl.monitor !== root.hlMonitor) continue
+      if (!ipc.workspace || ipc.workspace.id !== wsId) continue
+      const at = ipc.at
+      const size = ipc.size
+      if (!at || !size || at.length < 2 || size.length < 2) continue
+      out.push({ x: at[0], y: at[1], w: size[0], h: size[1] })
+    }
+    return out
+  }
+
+  function updateDynamicNear() {
+    if (Settings.transparencyMode !== "dynamic") {
+      if (dynamicNear !== 0) dynamicNear = 0
+      return
+    }
+    const rect = root.dockBarRect()
+    if (!rect) return
+    const near = Transparency.nearness(root.visibleWindowRects(), rect, Transparency.DEFAULT_SLACK)
+    if (near !== dynamicNear) dynamicNear = near
   }
 
   // Tokenizes an XDG desktop-entry Exec value per the freedesktop spec:
@@ -616,14 +673,28 @@ PanelWindow {
 
   onDockVisibleChanged: {
     if (!dockVisible) closeHoverMenu()
+    geometryTimer.restart()
   }
+
+  onHlMonitorChanged: geometryTimer.restart()
+
+  onMonitorWsIdChanged: geometryTimer.restart()
 
   Component.onCompleted: {
     rebuildModel()
     updateWorkspaceEmpty()
+    updateDynamicNear()
     // Build the desktop Name cache in the background so the first pin-menu
     // open is synchronous (no flash, no stutter).
     IconResolver.ensureMapLoaded()
+  }
+
+  // Switching to dynamic must measure the geometry right away; the bar alpha
+  // binding re-evaluates on its own, but `near` would otherwise wait for the
+  // next window event.
+  Connections {
+    target: Settings
+    function onTransparencyModeChanged() { root.updateDynamicNear() }
   }
 
   Connections {
@@ -653,6 +724,13 @@ PanelWindow {
         // monitor's activeWorkspace updates; 80ms settles and coalesces bursts.
         stateRefreshTimer.restart()
       }
+      if (["movewindow", "movewindowv2", "openwindow", "closewindow",
+           "activewindow", "activewindowv2", "fullscreen", "changefloatingmode",
+           "workspace", "workspacev2", "createworkspace", "createworkspacev2",
+           "destroyworkspace", "destroyworkspacev2",
+           "moveworkspacev2", "focusedmon", "focusedmonv2"].includes(event.name)) {
+        geometryTimer.restart()
+      }
     }
   }
 
@@ -664,6 +742,15 @@ PanelWindow {
       root.updateWorkspaceEmpty()
       if (root.showRunningUnpinned && !root.dragging) root.rebuildModel()
     }
+  }
+
+  // Debounced recompute of the geometry-derived state (dynamic transparency).
+  // Coalesces bursts of window events and the bar's own hover resize.
+  Timer {
+    id: geometryTimer
+    interval: 120
+    repeat: false
+    onTriggered: root.updateDynamicNear()
   }
 
   Rectangle {
@@ -716,9 +803,15 @@ PanelWindow {
     implicitWidth: row.implicitWidth + 24
     implicitHeight: row.implicitHeight + 24
 
+    // The bar's own footprint feeds the nearness measure, so re-measure when
+    // magnification or a settings change resizes it (debounced).
+    onWidthChanged: geometryTimer.restart()
+    onHeightChanged: geometryTimer.restart()
+
     // Translucent so the Hyprland layer blur (looknfeel.lua) reads as glass.
-    // Alpha follows the active theme's bar surface.
-    color: Util.alpha(Color.bar.background, root.glassAlpha)
+    // `barAlpha` keeps the theme's alpha in the default fixed mode and
+    // follows window proximity only in the dynamic mode.
+    color: Util.alpha(Color.bar.background, root.barAlpha)
     radius: 18
     border.color: Qt.alpha(Color.foreground, 0.18)
     border.width: 1
@@ -2235,6 +2328,209 @@ PanelWindow {
                   font.pixelSize: 12
                 }
               }
+            }
+          }
+        }
+
+        Text {
+          text: "Transparency"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { mode: "fixed", label: "Fixa (tema)" },
+              { mode: "dynamic", label: "Dinâmica (janela perto)" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: transRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: transRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.transparencyMode = modelData.mode
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.transparencyMode === modelData.mode
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
+            }
+          }
+        }
+
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Alpha mínimo"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: Math.round(minAlphaSlider.value * 100) + " %"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: minAlphaSlider
+            width: parent.width
+            from: 0.1
+            to: 1.0
+            stepSize: 0.05
+            value: Settings.minAlpha
+            onMoved: {
+              Settings.minAlpha = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: minAlphaSlider.leftPadding
+              y: minAlphaSlider.topPadding + minAlphaSlider.availableHeight / 2 - height / 2
+              width: minAlphaSlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: minAlphaSlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: minAlphaSlider.leftPadding + minAlphaSlider.visualPosition * minAlphaSlider.availableWidth - width / 2
+              y: minAlphaSlider.topPadding + minAlphaSlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
+            }
+          }
+        }
+
+        Column {
+          width: parent.width
+          spacing: 6
+
+          Item {
+            width: parent.width
+            height: 14
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Alpha máximo"
+              textFormat: Text.PlainText
+              color: Color.muted
+              font.pixelSize: 12
+            }
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: Math.round(maxAlphaSlider.value * 100) + " %"
+              textFormat: Text.PlainText
+              color: Color.menu.text
+              font.pixelSize: 12
+            }
+          }
+
+          Slider {
+            id: maxAlphaSlider
+            width: parent.width
+            from: 0.1
+            to: 1.0
+            stepSize: 0.05
+            value: Settings.maxAlpha
+            onMoved: {
+              Settings.maxAlpha = value
+              settingsSaveTimer.restart()
+            }
+
+            background: Rectangle {
+              x: maxAlphaSlider.leftPadding
+              y: maxAlphaSlider.topPadding + maxAlphaSlider.availableHeight / 2 - height / 2
+              width: maxAlphaSlider.availableWidth
+              height: 4
+              radius: 2
+              color: Qt.alpha(Color.foreground, 0.2)
+
+              Rectangle {
+                width: maxAlphaSlider.visualPosition * parent.width
+                height: parent.height
+                radius: 2
+                color: Color.foreground
+              }
+            }
+
+            handle: Rectangle {
+              x: maxAlphaSlider.leftPadding + maxAlphaSlider.visualPosition * maxAlphaSlider.availableWidth - width / 2
+              y: maxAlphaSlider.topPadding + maxAlphaSlider.availableHeight / 2 - height / 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.text
+              border.color: Color.menu.background
+              border.width: 1
             }
           }
         }
