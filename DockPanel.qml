@@ -9,6 +9,7 @@ import "services"
 import "model"
 import "logic/indicator.js" as Indicator
 import "logic/transparency.js" as Transparency
+import "logic/actions.js" as Actions
 import Quickshell.Io
 
 PanelWindow {
@@ -119,6 +120,10 @@ PanelWindow {
   property real dragPointerX: 0
   property real dragGrabOffset: 0
   readonly property bool dragging: dragName !== ""
+
+  // Wheel accumulation over the dock: one action per 120-unit notch, so a
+  // high-resolution wheel does not teleport through workspaces.
+  property real scrollAcc: 0
 
   // Resolved relative to this file, NOT Quickshell.shellDir: Omarchy loads
   // plugins into its own shell instance, so shellDir points at
@@ -566,6 +571,45 @@ PanelWindow {
     WindowService.focusWindow(address)
   }
 
+  // Focus a toplevel by address, falling back to its class — the same
+  // resolution the click handlers have always used inline.
+  function focusToplevel(tl) {
+    if (!tl) return
+    var addr = tl.lastIpcObject?.address
+    if (!addr || addr === "0") addr = "0x" + tl.address
+    if (addr && addr !== "0x0") {
+      Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
+    } else {
+      var cls = tl.lastIpcObject?.class
+      if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
+    }
+  }
+
+  // One focusHistoryID per app toplevel (999 for anything untracked) — the
+  // plain input logic/actions.js ranks for the focus/cycle click actions.
+  function focusIds(toplevels) {
+    const ids = []
+    for (const t of toplevels) {
+      const v = t.toplevel.lastIpcObject?.focusHistoryID
+      ids.push(typeof v === "number" ? v : 999)
+    }
+    return ids
+  }
+
+  // Every window on this screen's active workspace, for scroll-cycling.
+  function workspaceWindows() {
+    const out = []
+    const wsId = root.monitorWsId
+    if (wsId == null || wsId < 0) return out
+    for (const tl of Hyprland.toplevels.values) {
+      const ipc = tl.lastIpcObject
+      if (!ipc || !ipc.workspace || ipc.workspace.id !== wsId) continue
+      if (tl.monitor !== root.hlMonitor) continue
+      out.push(tl)
+    }
+    return out
+  }
+
   // macOS-style magnification: scale falls off with distance from the cursor
   // slot. Computed against the *base* (unmagnified) layout so a growing icon
   // can't move its own target and oscillate. Apps are the leading Row children,
@@ -861,6 +905,34 @@ PanelWindow {
       onSingleTapped: root.openPinMenu(point.position.x)
     }
 
+    // scrollAction: one action per wheel notch over the bar (see
+    // logic/actions.js). `nothing` (default) consumes the event without
+    // acting, so nothing behind the layer surface reacts either.
+    WheelHandler {
+      onWheel: event => {
+        const step = Actions.scrollStep(root.scrollAcc, event.angleDelta.y)
+        root.scrollAcc = step.acc
+        event.accepted = true
+        if (!step.fire) return
+        const op = Actions.routeScroll(Settings.scrollAction)
+        const up = event.angleDelta.y > 0
+        if (op === "switch-workspace") {
+          Hyprland.dispatch('hl.dsp.focus({ workspace = "' + (up ? "e-1" : "e+1") + '" })')
+        } else if (op === "cycle-windows") {
+          const wins = root.workspaceWindows()
+          if (wins.length > 0) {
+            const ids = []
+            for (const t of wins) {
+              const v = t.lastIpcObject?.focusHistoryID
+              ids.push(typeof v === "number" ? v : 999)
+            }
+            const wi = Actions.cycleIndex(ids, up ? -1 : 1)
+            if (wi >= 0) root.focusToplevel(wins[wi])
+          }
+        }
+      }
+    }
+
     Row {
       id: row
       anchors.centerIn: parent
@@ -1073,7 +1145,43 @@ PanelWindow {
                 return
               }
               var cmdParts = root.execTokenize(appItem.cmd)
+              const op = Actions.routeClick(Settings.clickAction, appItem.isRunning)
+
+              // clickAction "launch": open one more window even though the app
+              // is already running. A running-only entry has no command, so it
+              // falls back to focusing its most recent window.
+              if (appItem.isRunning && op === "launch") {
+                if (!appItem.busy && !appItem.runningOnly && cmdParts.length > 0) {
+                  appItem.busy = true
+                  Quickshell.execDetached(cmdParts)
+                } else {
+                  const lfi = Actions.mostRecentIndex(root.focusIds(appItem.toplevels))
+                  if (lfi >= 0) root.focusToplevel(appItem.toplevels[lfi].toplevel)
+                }
+                return
+              }
+
+              // clickAction "focus": raise the most recent window, never
+              // minimize.
+              if (appItem.isRunning && op === "focus") {
+                const ffi = Actions.mostRecentIndex(root.focusIds(appItem.toplevels))
+                if (ffi >= 0) root.focusToplevel(appItem.toplevels[ffi].toplevel)
+                root.maybeHideAfterAction()
+                return
+              }
+
+              // clickAction "cycle": step through this app's windows with
+              // wrap-around (0 = focused, next = previously used).
+              if (appItem.isRunning && op === "cycle") {
+                const cci = Actions.cycleIndex(root.focusIds(appItem.toplevels), 1)
+                if (cci >= 0) root.focusToplevel(appItem.toplevels[cci].toplevel)
+                root.maybeHideAfterAction()
+                return
+              }
+
               if (appItem.isRunning) {
+                // clickAction "minimize" (default): today's toggle — move
+                // windows to the scratchpad, restore them, or focus.
                 var minimizable = appItem.minimizable
                 if (minimizable) {
                   var anyOnCurrent = false
@@ -1109,26 +1217,12 @@ PanelWindow {
                         Hyprland.dispatch('hl.dsp.window.move({ workspace = ' + (ws ?? 1) + ', window = "address:' + addr + '" })')
                       }
                     }
-                    var addr = appItem.toplevels[0].toplevel.lastIpcObject?.address
-                    if (!addr || addr === "0") addr = "0x" + appItem.toplevels[0].toplevel.address
-                    if (addr && addr !== "0x0") {
-                      Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
-                    } else {
-                      var cls = appItem.toplevels[0].toplevel.lastIpcObject?.class
-                      if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
-                    }
+                    root.focusToplevel(appItem.toplevels[0].toplevel)
                     return
                   }
                 }
 
-                var addr = appItem.toplevels[0].toplevel.lastIpcObject?.address
-                if (!addr || addr === "0") addr = "0x" + appItem.toplevels[0].toplevel.address
-                if (addr && addr !== "0x0") {
-                  Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
-                } else {
-                  var cls = appItem.toplevels[0].toplevel.lastIpcObject?.class
-                  if (cls) Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })')
-                }
+                root.focusToplevel(appItem.toplevels[0].toplevel)
                 root.maybeHideAfterAction()
               } else if (!appItem.busy && !appItem.runningOnly) {
                 appItem.busy = true
@@ -2531,6 +2625,158 @@ PanelWindow {
               color: Color.menu.text
               border.color: Color.menu.background
               border.width: 1
+            }
+          }
+        }
+
+        Text {
+          text: "Actions"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Text {
+          text: "Clique em ícone aberto"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 10
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { key: "minimize", label: "Minimizar/restaurar" },
+              { key: "launch", label: "Abrir nova janela" },
+              { key: "cycle", label: "Alternar janelas" },
+              { key: "focus", label: "Focar" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: clickRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: clickRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.clickAction = modelData.key
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.clickAction === modelData.key
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
+            }
+          }
+        }
+
+        Text {
+          text: "Roda do mouse sobre a dock"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 10
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { key: "nothing", label: "Nada" },
+              { key: "cycle-windows", label: "Alternar janelas" },
+              { key: "switch-workspace", label: "Trocar workspace" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: scrollRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: scrollRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.scrollAction = modelData.key
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.scrollAction === modelData.key
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
             }
           }
         }
