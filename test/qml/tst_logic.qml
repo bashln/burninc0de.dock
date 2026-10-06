@@ -34,6 +34,15 @@ TestCase {
     compare(SettingsLogic.normalize({ mode: "autohide", hideOnEmpty: false }).mode, "autohide");
   }
 
+  function test_settings_s1_fields() {
+    const n = SettingsLogic.normalize({});
+    compare(n.position, "bottom");
+    compare(n.hideDelay, 500);
+    compare(n.indicatorStyle, "dot");
+    compare(SettingsLogic.normalize({ position: "diagonal" }).position, "bottom");
+    compare(SettingsLogic.normalize({ showDelay: 5000 }).showDelay, 1000);
+  }
+
   function test_matching() {
     verify(MatchingLogic.matchesApp({ appId: "foot" }, { appId: "foot" }));
     verify(!MatchingLogic.matchesApp({ appId: "foot-nvim" }, { appId: "foot" }));
