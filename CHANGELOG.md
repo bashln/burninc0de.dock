@@ -17,9 +17,14 @@
   window on the active workspace to the dock (`logic/transparency.js`,
   tested); `fixed` (default) keeps today's theme alpha. Settings panel gains
   the mode rows and min/max alpha sliders.
+- S1e: configurable click and scroll actions. Left-click on a running icon
+  can minimize/restore (default, unchanged), open another window, cycle the
+  app's windows or just focus; a wheel notch over the dock can do nothing
+  (default), cycle the workspace's windows or switch workspaces. Routing
+  lives in `logic/actions.js` (tested); Settings gains the two groups.
 
-Remaining S1 phases: S1e click/scroll actions, S1f intellihide, S1g dock
-position on four edges, S1h urgent feedback.
+Remaining S1 phases: S1f intellihide, S1g dock position on four edges, S1h
+urgent feedback.
 
 ### S0: architecture and settings
 
