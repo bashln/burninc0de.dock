@@ -5,6 +5,7 @@ import "../../logic/matching.js" as MatchingLogic
 import "../../logic/icons.js" as IconsLogic
 import "../../logic/model.js" as ModelLogic
 import "../../logic/indicator.js" as IndicatorLogic
+import "../../logic/transparency.js" as TransparencyLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -69,5 +70,13 @@ TestCase {
     compare(IndicatorLogic.spec("dots", 3).segments, 3);
     compare(IndicatorLogic.spec("count", 1).showCount, true);
     compare(IndicatorLogic.spec("dots", 10).segments, IndicatorLogic.LIMIT);
+  }
+
+  function test_transparency() {
+    const dock = { x: 0, y: 1000, w: 1920, h: 78 };
+    compare(TransparencyLogic.alphaFor("fixed", 1, 0.35, 0.75, 0.6), 0.6);
+    compare(TransparencyLogic.alphaFor("dynamic", 0.5, 0.35, 0.75, 0), 0.55);
+    compare(TransparencyLogic.nearness([], dock, 100), 0);
+    compare(TransparencyLogic.nearness([{ x: 0, y: 950, w: 1920, h: 130 }], dock, 100), 1);
   }
 }
