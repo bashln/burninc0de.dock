@@ -2,6 +2,7 @@ import QtTest
 import "../../logic/state.js" as StateLogic
 import "../../logic/settings.js" as SettingsLogic
 import "../../logic/matching.js" as MatchingLogic
+import "../../logic/icons.js" as IconsLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -37,5 +38,11 @@ TestCase {
     verify(!MatchingLogic.matchesApp({ appId: "foot-nvim" }, { appId: "foot" }));
     compare(MatchingLogic.binaryName("foot --app-id=foot-nvim -e nvim"), "foot");
     verify(MatchingLogic.isHiddenApp({ name: "Terminal", entryId: "" }, ["Terminal"]));
+  }
+
+  function test_icons() {
+    compare(IconsLogic.hostFromClass("chrome-web.whatsapp.com__-Default"), "web.whatsapp.com");
+    compare(IconsLogic.resolveLabel("foo", "T", { foo: { name: "Foo" } }), "Foo");
+    compare(IconsLogic.resolveIcon("foo", { foo: { icon: "bar" } }), "bar");
   }
 }

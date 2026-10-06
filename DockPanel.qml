@@ -90,10 +90,6 @@ PanelWindow {
   // UntypedObjectModel has no .find; .values is the QObjectList (JS array).
   readonly property var hlMonitor: Hyprland.monitors.values.find(m => m.name === root.screen?.name)
   readonly property int monitorWsId: hlMonitor && hlMonitor.activeWorkspace ? hlMonitor.activeWorkspace.id : -1
-  // Disk icon index (name → path), same idea as AppLibrary.iconIndex: Qt's
-  // themed lookup misses names like "x", the menu's disk scan does not.
-  property var iconDiskIndex: ({})
-  property var pendingIconDiskIndex: ({})
 
   property bool dockVisible: true
   property bool mouseOverDockArea: triggerHover.hovered || dockHover.hovered || contextHover.hovered || windowMenuHover.hovered || pinMenuHover.hovered || settingsHover.hovered
@@ -151,11 +147,6 @@ PanelWindow {
   property bool pinMenuExpanded: false
   readonly property bool pinMenuHasMore: pinCandidates.length > pinMenuPageSize
   readonly property var pinMenuVisibleCandidates: pinMenuExpanded ? pinCandidates : pinCandidates.slice(0, pinMenuPageSize)
-  // Lazy one-time desktop Name cache: class/appId/host (lowercased) → Name.
-  // Built on first pin-menu open so the menu is synchronous after. Null =
-  // not yet loaded.
-  property var desktopNameMap: null
-  property bool desktopMapLoading: false
   property real pendingPinAnchorX: 0
   property bool pendingPinOpen: false
 
@@ -426,119 +417,21 @@ PanelWindow {
     if (!root.mouseOverDockArea) root.scheduleHide()
   }
 
-  // class/appId (and raw title fallback) → display name via the desktop Name
-  // cache. Shared by the pin menu and running-only bar entries.
+  // class/appId (and raw title fallback) → display name via IconResolver.
   function candidateLabel(key, title) {
-    const map = root.desktopNameMap
-    let label = key
-    if (map) {
-      const lower = key.toLowerCase()
-      // Direct class/appId match
-      if (map[lower] && map[lower].name) label = map[lower].name
-      else {
-        // For chrome-host webapps also try host substring (e.g. google.com)
-        const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
-        if (m && map[m[1]] && map[m[1]].name) label = map[m[1]].name
-      }
-      // Final fallback: window title is more readable than raw class
-      if (label === key) {
-        const t = (title || "").trim()
-        if (t && t.length < 60) label = t
-      }
-    }
-    return label
+    return IconResolver.candidateLabel(key, title)
   }
 
-  // Desktop Icon= for a class/appId via the dump-map cache; falls back to
-  // the chrome-host heuristic then the raw class (iconPath may still miss).
   function candidateIcon(key, cls, appId) {
-    const map = root.desktopNameMap
-    if (map && key) {
-      const lower = key.toLowerCase()
-      if (map[lower] && map[lower].icon) return map[lower].icon
-      const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
-      if (m && map[m[1]] && map[m[1]].icon) return map[m[1]].icon
-    }
-    return root.pinCandidateIcon({ cls: cls, appId: appId })
+    return IconResolver.candidateIcon(key, cls, appId)
   }
 
-  // Window class/appId → DesktopEntry, same source the Omarchy app menu uses.
-  // id → StartupWMClass → Exec basename (all case-insensitive).
   function desktopEntryForWindow(cls, aid) {
-    const idKey = String(aid || "")
-    const clsKey = String(cls || "")
-    if (idKey) {
-      const byAid = DesktopEntries.byId(idKey)
-      if (byAid) return byAid
-    }
-    if (clsKey && clsKey !== idKey) {
-      const byCls = DesktopEntries.byId(clsKey)
-      if (byCls) return byCls
-    }
-    const key = (clsKey || idKey).toLowerCase()
-    if (!key) return null
-    const vals = DesktopEntries.applications.values || []
-    for (const e of vals) {
-      if (!e) continue
-      if (String(e.id).toLowerCase() === key) return e
-      if (String(e.startupClass || "").toLowerCase() === key) return e
-      const bin = String(e.execString || "").split(/[\s]+/)[0].split("/").pop().toLowerCase()
-      if (bin && bin === key) return e
-    }
-    return null
+    return IconResolver.desktopEntryForWindow(cls, aid)
   }
 
-  // Omarchy AppLibrary.iconSource replica (plugin shell.appLibrary is null
-  // without kind "menu"): absolute/file URL → disk index → themed → generic.
-  // Never returns empty, so an Image source can't go blank.
   function entryIconSource(icon) {
-    var v = String(icon || "")
-    if (v.length === 0) return Quickshell.iconPath("application-x-executable", true)
-    if (v.indexOf("file://") === 0 || v.indexOf("image://") === 0) return v
-    if (v.charAt(0) === "/") return Util.fileUrl(v)
-    var found = root.iconDiskIndex[v]
-    if (found) return Util.fileUrl(found)
-    var themed = Quickshell.iconPath(v, true)
-    if (themed && themed.length > 0) return themed
-    return Quickshell.iconPath("application-x-executable", true)
-  }
-
-  // Same scan as AppLibrary.iconIndexScanCommand: app/device icons across
-  // XDG icon dirs + /usr/share/pixmaps, SVG lines before PNG so the parser
-  // (first hit per name wins) prefers scalable icons.
-  function iconIndexScanCommand() {
-    return [
-      'dirs="$HOME/.icons $HOME/.local/share/icons";',
-      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
-      'for ext in svg png; do',
-      '  for base in $dirs; do',
-      '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
-      '  done;',
-      '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
-      'done'
-    ].join(' ')
-  }
-
-  function indexIconLine(line) {
-    var file = String(line || "").trim()
-    if (file.length === 0) return
-    var slash = file.lastIndexOf("/")
-    var base = slash >= 0 ? file.slice(slash + 1) : file
-    var dot = base.lastIndexOf(".")
-    var name = dot > 0 ? base.slice(0, dot) : base
-    if (name.length > 0 && root.pendingIconDiskIndex[name] === undefined)
-      root.pendingIconDiskIndex[name] = file
-  }
-
-  Process {
-    id: iconIndexScan
-    command: ["bash", "-c", root.iconIndexScanCommand()]
-    stdout: SplitParser {
-      onRead: function(line) { root.indexIconLine(line) }
-    }
-    onStarted: root.pendingIconDiskIndex = ({})
-    // Swapping the property re-evaluates every entryIconSource() binding.
-    onExited: root.iconDiskIndex = root.pendingIconDiskIndex
+    return IconResolver.entryIconSource(icon)
   }
 
   // Running apps that no dock icon claims, deduped by class/appId. A toplevel
@@ -574,30 +467,6 @@ PanelWindow {
     return out
   }
 
-  // Resolves an icon name for the pin menu. Webapps report a synthetic class
-  // like chrome-web.whatsapp.com__-Default which has no icon theme entry;
-  // the host's second-level domain (whatsapp) does. Fall back to that so the
-  // menu doesn't show a blank icon while the pinned dock icon (resolved via
-  // the desktop file) will be correct.
-  function pinCandidateIcon(entry) {
-    if (entry.empty) return ""
-    const raw = entry.cls || entry.appId || ""
-    if (!raw) return ""
-    const lower = raw.toLowerCase()
-    const m = lower.match(/-([a-z0-9.-]+\.[a-z]+)__/)
-    if (m) {
-      const host = m[1]
-      const parts = host.split(".")
-      const ignore = ["www", "com", "net", "org", "io", "co", "app", "chrome"]
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const p = parts[i]
-        if (!p || ignore.includes(p)) continue
-        return p
-      }
-    }
-    return raw
-  }
-
   function openPinMenu(xInBar) {
     if (root.pinMenuOpen) {
       root.closePinMenu()
@@ -605,18 +474,11 @@ PanelWindow {
     }
     root.closeContextMenu()
     root.closeHoverMenu()
-    // Lazy one-time map: first open builds the cache, then reopens.
-    if (root.desktopNameMap === null) {
-      if (!root.desktopMapLoading) {
-        root.desktopMapLoading = true
-        root.pendingPinAnchorX = xInBar
-        root.pendingPinOpen = true
-        desktopMapProcess.running = true
-      } else {
-        // Already loading (started at init) — queue this open.
-        root.pendingPinAnchorX = xInBar
-        root.pendingPinOpen = true
-      }
+    // Lazy one-time map: first open loads the cache, then reopens on mapLoaded.
+    if (IconResolver.desktopNameMap === null) {
+      root.pendingPinAnchorX = xInBar
+      root.pendingPinOpen = true
+      IconResolver.ensureMapLoaded()
       return
     }
     root.pinCandidates = root.buildPinCandidates()
@@ -656,31 +518,18 @@ PanelWindow {
     if (!root.mouseOverDockArea) root.scheduleHide()
   }
 
-  // One-time desktop Name cache. Built at startup so first pin-menu open
-  // is synchronous (no flash, no stutter). Also used as fallback if a
-  // later menu opens before the map is ready.
-  Process {
-    id: desktopMapProcess
-    command: [root.pinTool, "--dump-map"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        const map = {}
-        for (const line of this.text.trim().split("\n")) {
-          if (!line) continue
-          const parts = line.split("\t")
-          if (parts.length >= 2) map[parts[0]] = { name: parts[1], icon: parts[2] || "" }
-        }
-        root.desktopNameMap = map
-        root.desktopMapLoading = false
-        // Running-only labels fall back to raw class until this cache lands.
-        if (root.showRunningUnpinned && !root.dragging) root.rebuildModel()
-        if (root.pendingPinOpen) {
-          root.pendingPinOpen = false
-          root.pinCandidates = root.buildPinCandidates()
-          root.pinMenuAnchorX = root.pendingPinAnchorX
-          root.pinMenuExpanded = false
-          root.pinMenuOpen = true
-        }
+  // IconResolver owns the desktop map; react when it lands so running-only
+  // labels resolve and a queued pin-menu open can proceed.
+  Connections {
+    target: IconResolver
+    function onMapLoaded() {
+      if (root.showRunningUnpinned && !root.dragging) root.rebuildModel()
+      if (root.pendingPinOpen) {
+        root.pendingPinOpen = false
+        root.pinCandidates = root.buildPinCandidates()
+        root.pinMenuAnchorX = root.pendingPinAnchorX
+        root.pinMenuExpanded = false
+        root.pinMenuOpen = true
       }
     }
   }
@@ -704,8 +553,8 @@ PanelWindow {
         }
         root.pinCandidates = updated
         // Also backfill the cache so next open is instant.
-        if (root.desktopNameMap) {
-          for (const k in resolved) root.desktopNameMap[k.toLowerCase()] = { name: resolved[k], icon: "" }
+        if (IconResolver.desktopNameMap) {
+          for (const k in resolved) IconResolver.desktopNameMap[k.toLowerCase()] = { name: resolved[k], icon: "" }
         }
       }
     }
@@ -853,14 +702,9 @@ PanelWindow {
   Component.onCompleted: {
     rebuildModel()
     updateWorkspaceEmpty()
-    // Build desktop Name cache in background so first pin-menu open is
-    // synchronous (no flash, no stutter).
-    if (root.desktopNameMap === null && !root.desktopMapLoading) {
-      root.desktopMapLoading = true
-      desktopMapProcess.running = true
-    }
-    // Disk icon index so themed misses (e.g. Icon=x) resolve like the menu.
-    if (!iconIndexScan.running) iconIndexScan.running = true
+    // Build the desktop Name cache in the background so the first pin-menu
+    // open is synchronous (no flash, no stutter).
+    IconResolver.ensureMapLoaded()
   }
 
   Connections {
