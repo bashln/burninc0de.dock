@@ -89,8 +89,9 @@ S1 adds fields to this schema through the same mechanism.
 - `services/StateStore.qml` (singleton): reads the four state files, writes
   `order.json` and `settings.json`, emits change signals.
 - `services/Settings.qml` (singleton): schema properties, `load`, `save`, `reset`.
-- `services/WindowService.qml` (singleton): toplevels, matching, monitor and
-  workspace, `focusWindow`, `execTokenize`.
+- `services/WindowService.qml` (singleton): toplevels and matching
+  (`getToplevelsForApp`), `focusWindow`, `execTokenize`. Workspace and monitor
+  lookup stay in `DockPanel` until S1.
 - `services/IconResolver.qml` (singleton): `desktopNameMap`, disk icon index,
   `entryIconSource`, `candidateLabel`, `candidateIcon`, `desktopEntryForWindow`.
 - `services/DockIpc.qml` (singleton): `IpcHandler` with `toggle`, `pin`, `settings`.

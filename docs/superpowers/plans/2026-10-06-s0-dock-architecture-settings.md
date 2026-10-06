@@ -300,7 +300,7 @@ git commit -m "refactor: extract settings schema into Settings"
   - `Matching.binaryName(cmd) -> string`
   - `Matching.matchesApp(app, win) -> bool`, `app` has `{ matchTitle, appId, cmd, spacer }`, `win` has `{ title, appId, class }`
   - `Matching.isHiddenApp(app, hidden) -> bool`
-  - `WindowService.getToplevelsForApp(app)`, `monitorFor(screen)`, `workspaceEmptyFor(screen)`, `focusWindow(address)`, `execTokenize(cmd)`.
+  - `WindowService.getToplevelsForApp(app)`, `focusWindow(address)`, `execTokenize(cmd)`. Workspace-empty and monitor lookup stay in `DockPanel` for S0; S1 owns visibility and moves them.
 
 - [ ] **Step 1: Write the failing test `test/matching.test.js`**
 
@@ -372,7 +372,7 @@ Then append `Matching` to `test/qml/tst_logic.qml` and run `test/run.sh`.
 
 - [ ] **Step 5: Implement `services/WindowService.qml`**
 
-Hold `getToplevelsForApp(app)` (iterate `Hyprland.toplevels.values`, call `Matching.matchesApp`), `monitorFor(screen)` (the current `hlMonitor` lookup), `workspaceEmptyFor(screen)` (move `checkWorkspaceEmpty`/`updateWorkspaceEmpty` and the `clientsJson` Process here), `focusWindow(address)` and `execTokenize`. Add `singleton WindowService 1.0 WindowService.qml` to `services/qmldir`.
+Hold `getToplevelsForApp(app)` (iterate `Hyprland.toplevels.values`, call `Matching.matchesApp`, map to `{ toplevel, pid }`), `focusWindow(address)` and `execTokenize` delegating to `Matching`. Add `singleton WindowService 1.0 WindowService.qml` to `services/qmldir`. Workspace-empty and monitor lookup stay in `DockPanel` for S0.
 
 - [ ] **Step 6: Wire `DockPanel.qml`**
 

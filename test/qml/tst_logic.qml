@@ -1,6 +1,7 @@
 import QtTest
 import "../../logic/state.js" as StateLogic
 import "../../logic/settings.js" as SettingsLogic
+import "../../logic/matching.js" as MatchingLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -29,5 +30,12 @@ TestCase {
   function test_settings_mode_migration() {
     compare(SettingsLogic.normalize({ hideOnEmpty: true }).mode, "autohide");
     compare(SettingsLogic.normalize({ mode: "autohide", hideOnEmpty: false }).mode, "autohide");
+  }
+
+  function test_matching() {
+    verify(MatchingLogic.matchesApp({ appId: "foot" }, { appId: "foot" }));
+    verify(!MatchingLogic.matchesApp({ appId: "foot-nvim" }, { appId: "foot" }));
+    compare(MatchingLogic.binaryName("foot --app-id=foot-nvim -e nvim"), "foot");
+    verify(MatchingLogic.isHiddenApp({ name: "Terminal", entryId: "" }, ["Terminal"]));
   }
 }

@@ -6,6 +6,7 @@ import QtQuick.Controls.Basic
 import qs.Commons
 import "config"
 import "services"
+import "logic/matching.js" as Matching
 import Quickshell.Io
 
 PanelWindow {
@@ -217,8 +218,7 @@ PanelWindow {
   // running window, so a hidden-but-running app can resurface through
   // showRunningUnpinned instead of vanishing while open.
   function isHiddenApp(app) {
-    if (StateStore.hidden.indexOf(app.name) >= 0) return true
-    return app.entryId !== "" && StateStore.hidden.indexOf(app.entryId) >= 0
+    return Matching.isHiddenApp(app, StateStore.hidden)
   }
 
   // Declaration order in the config is the baseline; anything the user has
@@ -387,35 +387,7 @@ PanelWindow {
   // " \ $ `), single quotes (fully literal), and backslash escapes.
   // A plain split(/\s+/) corrupts any argument containing a quoted space.
   function execTokenize(exec) {
-    const parts = []
-    let cur = "", has = false, i = 0
-    while (i < exec.length) {
-      const c = exec[i]
-      if (c === " " || c === "\t") {
-        if (has) { parts.push(cur); cur = ""; has = false }
-        i++
-        continue
-      }
-      if (c === '"') {
-        has = true; i++
-        while (i < exec.length && exec[i] !== '"') {
-          if (exec[i] === "\\" && '"\\$`'.includes(exec[i + 1] ?? "")) i++
-          cur += exec[i++] ?? ""
-        }
-        i++
-        continue
-      }
-      if (c === "'") {
-        has = true; i++
-        while (i < exec.length && exec[i] !== "'") cur += exec[i++]
-        i++
-        continue
-      }
-      if (c === "\\" && exec[i + 1]) { cur += exec[i + 1]; i += 2; has = true; continue }
-      cur += c; has = true; i++
-    }
-    if (has) parts.push(cur)
-    return parts
+    return WindowService.execTokenize(exec)
   }
 
   function getUnreadCount(toplevels) {
@@ -431,32 +403,7 @@ PanelWindow {
   }
 
   function getToplevelsForApp(app) {
-    // Spacers never match a window; an empty cmd would otherwise match all.
-    if (app.spacer) return []
-    let results = []
-    for (const tl of Hyprland.toplevels.values) {
-      let matched = false
-      if (app.match) {
-        const title = tl.title.toLowerCase()
-        if (title.includes(app.match.toLowerCase())) matched = true
-      } else if (app.appId) {
-        const needle = app.appId.toLowerCase()
-        const appId = (tl.wayland?.appId ?? "").toLowerCase()
-        const cls = (tl.lastIpcObject?.class ?? "").toLowerCase()
-        // Class fallback: XWayland windows often report an empty wayland appId,
-        // and running-only entries key on class.
-        if (appId.includes(needle) || cls.includes(needle)) matched = true
-      } else if (app.cmd) {
-        const exe = root.execTokenize(app.cmd)[0].split("/").pop().replace(/\.[^/.]+$/, "").toLowerCase()
-        const appId = (tl.wayland?.appId ?? "").toLowerCase()
-        const cls = (tl.lastIpcObject?.class ?? "").toLowerCase()
-        if (appId.includes(exe) || cls.includes(exe) || (cls && exe.includes(cls))) matched = true
-      }
-      if (matched) {
-        results.push({ toplevel: tl, pid: tl.lastIpcObject?.pid ?? -1 })
-      }
-    }
-    return results
+    return WindowService.getToplevelsForApp(app)
   }
 
   function openContextMenu(item) {
@@ -799,8 +746,7 @@ PanelWindow {
   }
 
   function focusWindow(address) {
-    if (!address || address === "0x0") return
-    Hyprland.dispatch('hl.dsp.focus({ window = "address:' + address + '" })')
+    WindowService.focusWindow(address)
   }
 
   // macOS-style magnification: scale falls off with distance from the cursor
