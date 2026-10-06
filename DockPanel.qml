@@ -48,22 +48,18 @@ PanelWindow {
   readonly property real gap: 6
   readonly property real elevationMargin: -3
 
-  // Icon geometry is user-tunable from the Settings panel; the defaults are
-  // also what "Reset" restores and what applies before settings.json loads.
+  // Icon geometry comes from the Settings singleton. defaultItemSize is the
+  // reference the icon image scales against (itemSize * 40 / defaultItemSize).
   readonly property int defaultItemSize: 54
-  readonly property int defaultItemSpacing: 12
-  property int itemSize: defaultItemSize
-  property int itemSpacing: defaultItemSpacing
+  readonly property int itemSize: Settings.iconSize
+  readonly property int itemSpacing: Settings.spacing
   readonly property real itemPitch: itemSize + itemSpacing
-  // Visibility mode:
-  //   "always"   fixed — never hides (macOS dock with auto-hide off)
-  //   "autohide" hidden — reveals on bottom-edge hover (macOS auto-hide)
-  //   "smart"    visible on empty workspaces only (previous behaviour)
-  property string dockMode: "always"
-  // Hover magnification can be switched off entirely (Settings / settings.json).
-  property bool magnifyEnabled: true
+  // Visibility mode (see Settings): always / autohide / smart.
+  readonly property string dockMode: Settings.mode
+  // Hover magnification on/off; toggled in Settings.
+  readonly property bool magnifyEnabled: Settings.magnify
   // Leading Omarchy menu button (opens the app menu); toggled in Settings.
-  property bool showMenu: true
+  readonly property bool showMenu: Settings.showMenu
   // macOS-style hover magnification. Only off while dragging, so the reorder
   // math (itemPitch) stays stable — menus must NOT disable it, otherwise
   // hovering a multi-window icon (which opens the window list) collapses the
@@ -82,7 +78,7 @@ PanelWindow {
   readonly property real trashWidth: itemSize
   // A "spacer" entry (a config app with `spacer: true`) renders as a fixed gap
   // to group icons macOS-style. Its width is tunable from the Settings panel.
-  property real spacerWidth: 24
+  readonly property real spacerWidth: Settings.spacerWidth
   // Glass translucency derived from the theme's bar alpha (clamped so it stays
   // a glass surface even with an opaque theme, without going invisible).
   readonly property real glassAlpha: Math.max(0.35, Math.min(0.75, Color.bar.background.a))
@@ -188,43 +184,15 @@ PanelWindow {
   }
 
 
-  // Clamped at ingestion like every other untrusted input: settings.json is
-  // user-writable, so a bogus value can only saturate, not break layout.
-  function applySettings(s) {
-    const size = Math.round(Number(s.iconSize))
-    const spacing = Math.round(Number(s.spacing))
-    const spacer = Math.round(Number(s.spacerWidth))
-    if (!isNaN(size)) itemSize = Math.max(32, Math.min(96, size))
-    if (!isNaN(spacing)) itemSpacing = Math.max(0, Math.min(48, spacing))
-    if (!isNaN(spacer)) spacerWidth = Math.max(0, Math.min(96, spacer))
-    // `mode` wins; legacy hideOnEmpty maps to the closest mode.
-    if (typeof s.mode === "string" && ["always", "autohide", "smart"].indexOf(s.mode) >= 0)
-      dockMode = s.mode
-    else if (typeof s.hideOnEmpty === "boolean")
-      dockMode = s.hideOnEmpty ? "autohide" : "smart"
-    else if (typeof s.hideOnEmptyWorkspace === "boolean")
-      dockMode = s.hideOnEmptyWorkspace ? "autohide" : "smart"
-    if (typeof s.magnify === "boolean") magnifyEnabled = s.magnify
-    if (typeof s.showMenu === "boolean") showMenu = s.showMenu
-  }
-
-  function persistSettings() {
-    StateStore.writeSettings(
-      { iconSize: itemSize, spacing: itemSpacing, spacerWidth: spacerWidth, mode: dockMode, magnify: magnifyEnabled, showMenu: showMenu })
-  }
-
-
-
   ListModel { id: appModel }
 
-  // StateStore owns the file reads; rebuild when a read lands. Settings apply
-  // separately so a size change reflows without rebuilding the list.
+  // StateStore owns the file reads; rebuild when a read lands. Settings loads
+  // itself, so a size change reflows without rebuilding the list.
   Connections {
     target: StateStore
     function onOrderLoaded() { if (!root.dragging) root.rebuildModel() }
     function onPinsLoaded() { if (!root.dragging) root.rebuildModel() }
     function onHiddenLoaded() { if (!root.dragging) root.rebuildModel() }
-    function onSettingsLoaded() { root.applySettings(StateStore.settings) }
   }
 
   function normalizeApp(app, pinned) {
@@ -1559,7 +1527,7 @@ PanelWindow {
     id: settingsSaveTimer
     interval: 400
     repeat: false
-    onTriggered: root.persistSettings()
+    onTriggered: Settings.save()
   }
 
   function closeHoverMenu() {
@@ -1996,7 +1964,7 @@ PanelWindow {
             stepSize: 2
             value: root.itemSize
             onMoved: {
-              root.itemSize = value
+              Settings.iconSize = value
               settingsSaveTimer.restart()
             }
 
@@ -2062,7 +2030,7 @@ PanelWindow {
             stepSize: 2
             value: root.itemSpacing
             onMoved: {
-              root.itemSpacing = value
+              Settings.spacing = value
               settingsSaveTimer.restart()
             }
 
@@ -2128,7 +2096,7 @@ PanelWindow {
             stepSize: 2
             value: root.spacerWidth
             onMoved: {
-              root.spacerWidth = value
+              Settings.spacerWidth = value
               settingsSaveTimer.restart()
             }
 
@@ -2192,8 +2160,8 @@ PanelWindow {
               TapHandler {
                 acceptedButtons: Qt.LeftButton
                 onSingleTapped: {
-                  root.dockMode = modelData.mode
-                  root.persistSettings()
+                  Settings.mode = modelData.mode
+                  Settings.save()
                 }
               }
 
@@ -2249,8 +2217,8 @@ PanelWindow {
           TapHandler {
             acceptedButtons: Qt.LeftButton
             onSingleTapped: {
-              root.magnifyEnabled = !root.magnifyEnabled
-              root.persistSettings()
+              Settings.magnify = !Settings.magnify
+              Settings.save()
             }
           }
 
@@ -2291,8 +2259,8 @@ PanelWindow {
           TapHandler {
             acceptedButtons: Qt.LeftButton
             onSingleTapped: {
-              root.showMenu = !root.showMenu
-              root.persistSettings()
+              Settings.showMenu = !Settings.showMenu
+              Settings.save()
             }
           }
 
@@ -2343,13 +2311,7 @@ PanelWindow {
           TapHandler {
             acceptedButtons: Qt.LeftButton
             onSingleTapped: {
-              root.itemSize = root.defaultItemSize
-              root.itemSpacing = root.defaultItemSpacing
-              root.spacerWidth = 24
-              root.dockMode = "always"
-              root.magnifyEnabled = true
-              root.showMenu = true
-              root.persistSettings()
+              Settings.reset()
             }
           }
 
