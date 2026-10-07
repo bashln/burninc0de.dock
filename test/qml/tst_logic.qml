@@ -7,6 +7,7 @@ import "../../logic/model.js" as ModelLogic
 import "../../logic/indicator.js" as IndicatorLogic
 import "../../logic/transparency.js" as TransparencyLogic
 import "../../logic/actions.js" as ActionsLogic
+import "../../logic/intellihide.js" as IntellihideLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -89,5 +90,16 @@ TestCase {
     compare(ActionsLogic.mostRecentIndex([5, 0, 9]), 1);
     verify(ActionsLogic.scrollStep(0, 120).fire);
     compare(ActionsLogic.routeScroll("bogus"), "nothing");
+  }
+
+  function test_intellihide() {
+    const dock = { x: 0, y: 900, w: 1920, h: 78 };
+    const over = { x: 100, y: 850, w: 400, h: 200, focused: false, maximized: false, onTop: false };
+    compare(IntellihideLogic.shouldHide(false, "all", [over], dock), false);
+    compare(IntellihideLogic.shouldHide(true, "all", [over], dock), true);
+    compare(IntellihideLogic.shouldHide(true, "focused", [over], dock), false);
+    compare(IntellihideLogic.shouldHide(true, "focused", [{ x: over.x, y: over.y, w: over.w, h: over.h, focused: true }], dock), true);
+    const touching = { x: 0, y: 800, w: 100, h: 100 };
+    compare(IntellihideLogic.overlaps(touching, dock), false);
   }
 }
