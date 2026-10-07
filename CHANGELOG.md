@@ -28,19 +28,11 @@
   hover reveal keeps working. The Settings panel gains the toggle and the four
   mode rows. Default `false` keeps the feature inert.
 
-Remaining S1 phases: settings panel clipping fix, S1g dock position on four
-edges, S1h urgent feedback.
+Remaining S1 phases: S1g dock position on four edges, S1h urgent feedback.
 
 ### Known issues
 
-- Settings panel clips. `settingsPanel`/`settingsCard` is a plain `Column`
-  with no height bound and no scroll (unlike the pin menu, which uses a
-  `Flickable`). After the S1 controls landed it holds eight sliders plus the
-  mode/indicator/action groups, so the card grows taller than the screen: the
-  top rows run off the top edge (the panel opens partway down, e.g. starting at
-  the scroll-action group) and right-aligned value labels such as a slider's
-  "448 ms" can overflow the right edge. Fix: bound the card height and add a
-  scroll (or split the panel into tabs). Deferred until the S1 controls settle.
+- None open. (Previously: the Settings panel clipped — the card is now height-bounded and scrolls, mirroring the pin menu's Flickable; fixed by the `fix:` commit below.)
 
 ### S0: architecture and settings
 
@@ -55,5 +47,8 @@ edges, S1h urgent feedback.
 
 ### Fixes
 
+- Settings panel clipping: the card is height-bounded to the space above the
+  dock and its body scrolls (Flickable mirroring the pin menu's), so the top
+  rows no longer run off the screen edge and value labels stay inside.
 - Hidden config apps that are running now reappear on the dock while open.
 - Escaped the dots in the chrome-host icon regex.

@@ -1899,6 +1899,12 @@ PanelWindow {
     Rectangle {
       id: settingsCard
 
+      // Room for the scroll area: the panel hangs from dockBar.top, so the
+      // space above the bar minus the panel margin (2), card padding (24),
+      // header (~16) and spacing (10) is what the body may use. The floor
+      // keeps the panel usable even if the bar sits unusually low.
+      readonly property int scrollMax: Math.max(140, dockBar.y - 54)
+
       implicitWidth: 230
       implicitHeight: settingsColumn.implicitHeight + 24
 
@@ -1920,6 +1926,33 @@ PanelWindow {
           font.pixelSize: 13
           font.bold: true
         }
+
+        // Everything below the header scrolls, capped like pinFlick so the
+        // card can never outgrow the space above the dock. Column spacing
+        // and every row stay as they were; only the viewport is bounded.
+        Flickable {
+          id: settingsFlick
+          width: settingsColumn.width
+          height: Math.min(settingsBody.implicitHeight, settingsCard.scrollMax)
+          clip: true
+          contentHeight: settingsBody.implicitHeight
+          flickableDirection: Flickable.VerticalFlick
+          boundsBehavior: Flickable.StopAtBounds
+
+          WheelHandler {
+            onWheel: event => {
+              if (settingsFlick.contentHeight > settingsFlick.height) {
+                const dy = event.angleDelta.y > 0 ? -40 : 40
+                settingsFlick.contentY = Math.max(0, Math.min(settingsFlick.contentHeight - settingsFlick.height, settingsFlick.contentY + dy))
+                event.accepted = true
+              }
+            }
+          }
+
+          Column {
+            id: settingsBody
+            width: settingsFlick.width
+            spacing: 10
 
         Column {
           width: parent.width
@@ -3060,6 +3093,8 @@ PanelWindow {
             textFormat: Text.PlainText
             color: Color.muted
             font.pixelSize: 11
+          }
+        }
           }
         }
       }
