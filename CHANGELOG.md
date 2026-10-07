@@ -22,12 +22,14 @@
   app's windows or just focus; a wheel notch over the dock can do nothing
   (default), cycle the workspace's windows or switch workspaces. Routing
   lives in `logic/actions.js` (tested); Settings gains the two groups.
-- S1f (in progress): the intellihide overlap rule (`logic/intellihide.js`,
-  tested) and its visibility wiring in `DockPanel.qml` are in. The Settings
-  controls for it are still pending, so the feature is inert by default.
+- S1f: intellihide. `logic/intellihide.js` decides whether a window overlaps
+  the dock bar (modes: all / focused / maximized / always-on-top, tested); the
+  flag feeds the existing show/hide paths so an overlap hides the dock while
+  hover reveal keeps working. The Settings panel gains the toggle and the four
+  mode rows. Default `false` keeps the feature inert.
 
-Remaining S1 phases: S1f Settings controls, S1g dock position on four edges,
-S1h urgent feedback.
+Remaining S1 phases: settings panel clipping fix, S1g dock position on four
+edges, S1h urgent feedback.
 
 ### Known issues
 
