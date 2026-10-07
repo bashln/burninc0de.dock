@@ -22,9 +22,12 @@
   app's windows or just focus; a wheel notch over the dock can do nothing
   (default), cycle the workspace's windows or switch workspaces. Routing
   lives in `logic/actions.js` (tested); Settings gains the two groups.
+- S1f (in progress): the intellihide overlap rule (`logic/intellihide.js`,
+  tested) and its visibility wiring in `DockPanel.qml` are in. The Settings
+  controls for it are still pending, so the feature is inert by default.
 
-Remaining S1 phases: S1f intellihide, S1g dock position on four edges, S1h
-urgent feedback.
+Remaining S1 phases: S1f Settings controls, S1g dock position on four edges,
+S1h urgent feedback.
 
 ### S0: architecture and settings
 

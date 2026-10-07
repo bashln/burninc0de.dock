@@ -10,6 +10,7 @@ import "model"
 import "logic/indicator.js" as Indicator
 import "logic/transparency.js" as Transparency
 import "logic/actions.js" as Actions
+import "logic/intellihide.js" as Intellihide
 import Quickshell.Io
 
 PanelWindow {
@@ -95,6 +96,12 @@ PanelWindow {
   Behavior on barAlpha {
     NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
   }
+  // Intellihide (see logic/intellihide.js): true while a qualifying window
+  // overlaps the bar. Recomputed from the same event-driven geometry pass as
+  // dynamicNear — never polled. `intellihideHides` is the hide pressure the
+  // show/hide paths consult; it is false with the default settings.
+  property bool intellihideBlocked: false
+  readonly property bool intellihideHides: Settings.intellihide && intellihideBlocked
   // Local flag: DockApps singleton may survive plugin reloads without new
   // properties — do not depend on cross-file singleton for this.
   property bool showRunningUnpinned: true
@@ -317,7 +324,8 @@ PanelWindow {
   // dock: only windows on the monitor's active workspace (Hyprland reports
   // `visible: true` even for windows parked on inactive workspaces, so the
   // workspace check is the one that matters; special/minimized workspaces
-  // never match an active id).
+  // never match an active id). The intellihide flags ride along —
+  // transparency only reads x/y/w/h.
   function visibleWindowRects() {
     const out = []
     const wsId = root.monitorWsId
@@ -330,7 +338,15 @@ PanelWindow {
       const at = ipc.at
       const size = ipc.size
       if (!at || !size || at.length < 2 || size.length < 2) continue
-      out.push({ x: at[0], y: at[1], w: size[0], h: size[1] })
+      out.push({
+        x: at[0],
+        y: at[1],
+        w: size[0],
+        h: size[1],
+        focused: typeof ipc.focusHistoryID === "number" ? ipc.focusHistoryID === 0 : false,
+        maximized: typeof ipc.fullscreen === "number" ? ipc.fullscreen >= 1 : false,
+        onTop: ipc.pinned === true,
+      })
     }
     return out
   }
@@ -344,6 +360,16 @@ PanelWindow {
     if (!rect) return
     const near = Transparency.nearness(root.visibleWindowRects(), rect, Transparency.DEFAULT_SLACK)
     if (near !== dynamicNear) dynamicNear = near
+  }
+
+  // Recompute the intellihide decision from the same geometry pass. Disabled
+  // settings answer false, so the flag drops to false and stays there.
+  function updateIntellihide() {
+    const rect = root.dockBarRect()
+    const blocked = rect
+      ? Intellihide.shouldHide(Settings.intellihide, Settings.intellihideMode, root.visibleWindowRects(), rect)
+      : false
+    if (blocked !== intellihideBlocked) intellihideBlocked = blocked
   }
 
   // Tokenizes an XDG desktop-entry Exec value per the freedesktop spec:
@@ -656,15 +682,20 @@ PanelWindow {
   }
 
   function scheduleHide() {
-    if (dockMode === "always") return
+    if (dockMode === "always" && !root.intellihideHides) return
     showTimer.stop()
     hideTimer.restart()
   }
 
   // After focusing/launching/unpinning: drop the dock when the mode calls for
-  // it, using the same rules as the hide timer.
+  // it, using the same rules as the hide timer. In the `always` mode the only
+  // hide pressure is an intellihide overlap.
   function maybeHideAfterAction() {
-    if (dockMode === "always") return
+    if (dockMode === "always") {
+      if (!root.intellihideHides) return
+      if (!root.mouseOverDockArea) root.dockVisible = false
+      return
+    }
     if (dockMode === "autohide") {
       if (!root.mouseOverDockArea) root.dockVisible = false
       return
@@ -689,15 +720,29 @@ PanelWindow {
   }
 
   onWorkspaceEmptyChanged: {
-    if (dockMode === "always") { showDockBar(); return }
+    if (dockMode === "always") {
+      if (!intellihideHides) showDockBar()
+      return
+    }
     if (dockMode === "smart") {
       if (workspaceEmpty) showDockBar()
       else scheduleHide()
     }
   }
 
+  // An overlap hides with the usual delay; its end re-shows the dock in the
+  // modes where it is meant to be up. Hover reveal is untouched, so the dock
+  // stays reachable while blocked.
+  onIntellihideBlockedChanged: {
+    if (intellihideBlocked) scheduleHide()
+    else if (dockMode === "always" || (dockMode === "smart" && workspaceEmpty)) showDockBar()
+  }
+
   onDockModeChanged: {
-    if (dockMode === "always") { showDockBar(); return }
+    if (dockMode === "always") {
+      if (!intellihideHides) showDockBar()
+      return
+    }
     if (dockMode === "autohide") {
       if (!mouseOverDockArea && !dragging && !contextOpen && !hoverMenuOpen
           && !pinMenuOpen && !settingsOpen) {
@@ -728,6 +773,7 @@ PanelWindow {
     rebuildModel()
     updateWorkspaceEmpty()
     updateDynamicNear()
+    updateIntellihide()
     // Build the desktop Name cache in the background so the first pin-menu
     // open is synchronous (no flash, no stutter).
     IconResolver.ensureMapLoaded()
@@ -735,10 +781,13 @@ PanelWindow {
 
   // Switching to dynamic must measure the geometry right away; the bar alpha
   // binding re-evaluates on its own, but `near` would otherwise wait for the
-  // next window event.
+  // next window event. Intellihide re-measures on toggle/mode change so the
+  // dock reacts immediately instead of waiting for the next window event.
   Connections {
     target: Settings
     function onTransparencyModeChanged() { root.updateDynamicNear() }
+    function onIntellihideChanged() { root.updateIntellihide() }
+    function onIntellihideModeChanged() { root.updateIntellihide() }
   }
 
   Connections {
@@ -788,13 +837,17 @@ PanelWindow {
     }
   }
 
-  // Debounced recompute of the geometry-derived state (dynamic transparency).
-  // Coalesces bursts of window events and the bar's own hover resize.
+  // Debounced recompute of the geometry-derived state (dynamic transparency
+  // and intellihide). Coalesces bursts of window events and the bar's own
+  // hover resize.
   Timer {
     id: geometryTimer
     interval: 120
     repeat: false
-    onTriggered: root.updateDynamicNear()
+    onTriggered: {
+      root.updateDynamicNear()
+      root.updateIntellihide()
+    }
   }
 
   Rectangle {
@@ -831,7 +884,7 @@ PanelWindow {
     interval: Settings.hideDelay
     repeat: false
     onTriggered: {
-      if (root.dockMode === "always") return
+      if (root.dockMode === "always" && !root.intellihideHides) return
       if (root.mouseOverDockArea || root.dragging || root.contextOpen || root.hoverMenuOpen || root.pinMenuOpen || root.settingsOpen) return
       if (root.dockMode === "smart" && root.workspaceEmpty) return
       root.dockVisible = false
@@ -2350,6 +2403,121 @@ PanelWindow {
           color: Color.muted
           font.pixelSize: 10
           wrapMode: Text.WordWrap
+        }
+
+        Text {
+          text: "Intellihide"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Item {
+          width: parent.width
+          height: 22
+
+          TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onSingleTapped: {
+              Settings.intellihide = !Settings.intellihide
+              Settings.save()
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Esconder quando cobrir a dock"
+            textFormat: Text.PlainText
+            color: Color.menu.text
+            font.pixelSize: 12
+          }
+
+          Rectangle {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: 34
+            height: 18
+            radius: 9
+            color: Settings.intellihide ? Color.accent : Qt.alpha(Color.foreground, 0.25)
+            Behavior on color { ColorAnimation { duration: 150 } }
+
+            Rectangle {
+              x: Settings.intellihide ? parent.width - width - 2 : 2
+              y: 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.background
+              Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            }
+          }
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { key: "all", label: "Qualquer janela" },
+              { key: "focused", label: "Janela focada" },
+              { key: "maximized", label: "Janela maximizada" },
+              { key: "always-on-top", label: "Sempre no topo" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: ihRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: ihRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.intellihideMode = modelData.key
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.intellihideMode === modelData.key
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
+            }
+          }
         }
 
         Text {
