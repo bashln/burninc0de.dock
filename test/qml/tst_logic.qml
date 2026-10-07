@@ -8,6 +8,7 @@ import "../../logic/indicator.js" as IndicatorLogic
 import "../../logic/transparency.js" as TransparencyLogic
 import "../../logic/actions.js" as ActionsLogic
 import "../../logic/intellihide.js" as IntellihideLogic
+import "../../logic/edge.js" as EdgeLogic
 
 // Cross-runtime check: the logic modules must load and run under QJSEngine,
 // which is the runtime QML uses. The node suite cannot catch that.
@@ -101,5 +102,20 @@ TestCase {
     compare(IntellihideLogic.shouldHide(true, "focused", [{ x: over.x, y: over.y, w: over.w, h: over.h, focused: true }], dock), true);
     const touching = { x: 0, y: 800, w: 100, h: 100 };
     compare(IntellihideLogic.overlaps(touching, dock), false);
+  }
+
+  function test_edge() {
+    compare(EdgeLogic.info("diagonal").edge, "bottom");
+    compare(EdgeLogic.info("left").horizontal, false);
+    compare(EdgeLogic.info("top").horizontal, true);
+    const bar = { x: 800, y: 239, w: 400, h: 78 };
+    const win = { w: 1920, h: 320 };
+    const p = EdgeLogic.placeMenu("bottom", bar, 140, { w: 230, h: 400 }, win, 2);
+    compare(p.x, Math.max(0, Math.min(bar.x + 140 - 230 / 2, win.w - 230)));
+    compare(p.y, bar.y - 2 - 400);
+    compare(EdgeLogic.menuSpace("bottom", bar, win), 239);
+    const rect = EdgeLogic.barRect({ x: 0, y: 0, w: 1920, h: 1080 }, "bottom", 320, bar);
+    compare(rect.y, 1080 - 320 + 239);
+    compare(EdgeLogic.magnifyScale(-10000, 500, 140, 1.6), 1);
   }
 }
