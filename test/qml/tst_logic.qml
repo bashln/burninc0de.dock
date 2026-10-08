@@ -5,6 +5,7 @@ import "../../logic/matching.js" as MatchingLogic
 import "../../logic/icons.js" as IconsLogic
 import "../../logic/model.js" as ModelLogic
 import "../../logic/indicator.js" as IndicatorLogic
+import "../../logic/urgent.js" as UrgentLogic
 import "../../logic/transparency.js" as TransparencyLogic
 import "../../logic/actions.js" as ActionsLogic
 import "../../logic/intellihide.js" as IntellihideLogic
@@ -117,5 +118,12 @@ TestCase {
     const rect = EdgeLogic.barRect({ x: 0, y: 0, w: 1920, h: 1080 }, "bottom", 320, bar);
     compare(rect.y, 1080 - 320 + 239);
     compare(EdgeLogic.magnifyScale(-10000, 500, 140, 1.6), 1);
+  }
+
+  function test_urgent() {
+    compare(UrgentLogic.addressFromEvent("0xabc,extra"), "0xabc");
+    verify(UrgentLogic.hasUrgent([{ a: "0x1" }], { "0x1": true }, (t) => t.a));
+    verify(UrgentLogic.shouldReveal(true, 1));
+    verify(!UrgentLogic.shouldReveal(false, 1));
   }
 }
