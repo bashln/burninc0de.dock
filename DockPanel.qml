@@ -11,6 +11,7 @@ import "logic/indicator.js" as Indicator
 import "logic/transparency.js" as Transparency
 import "logic/actions.js" as Actions
 import "logic/intellihide.js" as Intellihide
+import "logic/urgent.js" as Urgent
 import Quickshell.Io
 
 PanelWindow {
@@ -115,6 +116,10 @@ PanelWindow {
   property bool workspaceEmpty: true
   property string clientsJson: ""
   property int _badgeTick: 0
+  // Urgent windows (S1h): addresses reported by Hyprland's urgent event, and a
+  // tick that re-evaluates the per-icon wiggle binding when the set changes.
+  property var urgentAddrs: ({})
+  property int _urgentTick: 0
 
   // Byte ceiling for hyprctl output, which scales with open windows, so it
   // never reaches this long-lived process unbounded. State-file ceilings now
@@ -597,6 +602,14 @@ PanelWindow {
     WindowService.focusWindow(address)
   }
 
+  // Address of a toplevel, tolerant of the two shapes Quickshell exposes.
+  function toplevelAddress(tl) {
+    if (!tl) return ""
+    var addr = tl.lastIpcObject?.address
+    if (!addr || addr === "0") addr = "0x" + tl.address
+    return addr || ""
+  }
+
   // Focus a toplevel by address, falling back to its class — the same
   // resolution the click handlers have always used inline.
   function focusToplevel(tl) {
@@ -811,6 +824,23 @@ PanelWindow {
       }
       if (event.name === "windowtitle") {
         root._badgeTick++
+      }
+      if (event.name === "urgent" || event.name === "urgentv2") {
+        const addr = Urgent.addressFromEvent(event.data)
+        if (addr) {
+          const next = Object.assign({}, root.urgentAddrs)
+          next[addr] = true
+          root.urgentAddrs = next
+          root._urgentTick++
+          if (Settings.urgentWiggle) root.showDockBar()
+        }
+      }
+      if (event.name === "activewindow" || event.name === "activewindowv2") {
+        // Hyprland clears urgency on focus.
+        if (Object.keys(root.urgentAddrs).length > 0) {
+          root.urgentAddrs = ({})
+          root._urgentTick++
+        }
       }
       if (event.name === "openwindow" || event.name === "closewindow") {
         // Event may arrive before Quickshell registers the toplevel or the
@@ -1079,12 +1109,26 @@ PanelWindow {
           property bool busy: false
           // macOS launch bounce: the icon hops while the app is starting.
           property real bounceOffset: 0
+          // Urgent wiggle (S1h): on while a window of this app is urgent.
+          readonly property bool urgentNow: {
+            root._urgentTick
+            return Settings.urgentWiggle && Urgent.hasUrgent(appItem.toplevels, root.urgentAddrs, root.toplevelAddress)
+          }
+          property real wiggleAngle: 0
 
           SequentialAnimation {
             running: appItem.busy && !appItem.isRunning
             loops: Animation.Infinite
             NumberAnimation { target: appItem; property: "bounceOffset"; from: 0; to: -10; duration: 160; easing.type: Easing.OutQuad }
             NumberAnimation { target: appItem; property: "bounceOffset"; from: -10; to: 0; duration: 160; easing.type: Easing.InQuad }
+          }
+
+          SequentialAnimation {
+            running: appItem.urgentNow
+            loops: Animation.Infinite
+            NumberAnimation { target: appItem; property: "wiggleAngle"; from: 0; to: -10; duration: 100; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: appItem; property: "wiggleAngle"; from: -10; to: 10; duration: 200; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: appItem; property: "wiggleAngle"; from: 10; to: 0; duration: 100; easing.type: Easing.InOutQuad }
           }
 
           // Debounce guard against double-launch. Normally cleared when a
@@ -1295,6 +1339,7 @@ PanelWindow {
             // Rides the magnified item size (54 → 40 keeps the original look)
             // and the launch bounce.
             anchors.verticalCenterOffset: appItem.bounceOffset
+            rotation: appItem.wiggleAngle
             source: root.entryIconSource(appItem.icon)
             width: Math.round(appItem.width * 40 / root.defaultItemSize)
             height: width

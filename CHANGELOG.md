@@ -27,8 +27,13 @@
   flag feeds the existing show/hide paths so an overlap hides the dock while
   hover reveal keeps working. The Settings panel gains the toggle and the four
   mode rows. Default `false` keeps the feature inert.
+- S1h: urgent feedback. `logic/urgent.js` (tested) parses the Hyprland urgent
+  address and decides the wiggle and the reveal. With `urgentWiggle` on, an
+  urgent window wiggles its icon and the dock reveals; focus clears it. Default
+  `false` keeps the feature inert.
 
-Remaining S1 phases: S1g dock position on four edges, S1h urgent feedback.
+Remaining S1 phases: S1g dock position on four edges (edge geometry committed in
+`logic/edge.js`; the `DockPanel.qml` wiring is still pending).
 
 ### Known issues
 
