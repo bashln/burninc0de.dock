@@ -826,19 +826,40 @@ PanelWindow {
         root._badgeTick++
       }
       if (event.name === "urgent" || event.name === "urgentv2") {
-        const addr = Urgent.addressFromEvent(event.data)
-        if (addr) {
-          const next = Object.assign({}, root.urgentAddrs)
-          next[addr] = true
-          root.urgentAddrs = next
-          root._urgentTick++
-          if (Settings.urgentWiggle) root.showDockBar()
+        // Only track while the feature is on, so the default stays inert.
+        if (Settings.urgentWiggle) {
+          const addr = Urgent.addressFromEvent(event.data)
+          if (addr) {
+            const next = Object.assign({}, root.urgentAddrs)
+            next[addr] = true
+            root.urgentAddrs = next
+            root._urgentTick++
+            if (Urgent.shouldReveal(Settings.urgentWiggle, Object.keys(root.urgentAddrs).length)) root.showDockBar()
+          }
         }
       }
-      if (event.name === "activewindow" || event.name === "activewindowv2") {
-        // Hyprland clears urgency on focus.
+      if (event.name === "activewindowv2") {
+        // Hyprland clears urgency for the window that gains focus.
+        const addr = Urgent.addressFromEvent(event.data)
+        if (addr && root.urgentAddrs[addr]) {
+          const next = Object.assign({}, root.urgentAddrs)
+          delete next[addr]
+          root.urgentAddrs = next
+          root._urgentTick++
+        }
+      } else if (event.name === "activewindow") {
+        // Legacy event carries no address; drop the whole set.
         if (Object.keys(root.urgentAddrs).length > 0) {
           root.urgentAddrs = ({})
+          root._urgentTick++
+        }
+      }
+      if (event.name === "closewindow") {
+        const addr = Urgent.addressFromEvent(event.data)
+        if (addr && root.urgentAddrs[addr]) {
+          const next = Object.assign({}, root.urgentAddrs)
+          delete next[addr]
+          root.urgentAddrs = next
           root._urgentTick++
         }
       }
@@ -1126,6 +1147,8 @@ PanelWindow {
           SequentialAnimation {
             running: appItem.urgentNow
             loops: Animation.Infinite
+            // A stop mid-swing would leave the icon tilted; restore it.
+            onStopped: appItem.wiggleAngle = 0
             NumberAnimation { target: appItem; property: "wiggleAngle"; from: 0; to: -10; duration: 100; easing.type: Easing.InOutQuad }
             NumberAnimation { target: appItem; property: "wiggleAngle"; from: -10; to: 10; duration: 200; easing.type: Easing.InOutQuad }
             NumberAnimation { target: appItem; property: "wiggleAngle"; from: 10; to: 0; duration: 100; easing.type: Easing.InOutQuad }
@@ -2594,6 +2617,48 @@ PanelWindow {
                   font.pixelSize: 12
                 }
               }
+            }
+          }
+        }
+
+        Item {
+          width: parent.width
+          height: 22
+
+          TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onSingleTapped: {
+              Settings.urgentWiggle = !Settings.urgentWiggle
+              Settings.save()
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Wiggle em urgência"
+            textFormat: Text.PlainText
+            color: Color.menu.text
+            font.pixelSize: 12
+          }
+
+          Rectangle {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: 34
+            height: 18
+            radius: 9
+            color: Settings.urgentWiggle ? Color.accent : Qt.alpha(Color.foreground, 0.25)
+            Behavior on color { ColorAnimation { duration: 150 } }
+
+            Rectangle {
+              x: Settings.urgentWiggle ? parent.width - width - 2 : 2
+              y: 2
+              width: 14
+              height: 14
+              radius: 7
+              color: Color.menu.background
+              Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
             }
           }
         }

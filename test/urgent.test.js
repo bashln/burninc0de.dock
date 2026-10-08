@@ -24,6 +24,11 @@ test("hasUrgent is false when none match", () => {
   assert.strictEqual(U.hasUrgent(tls, { "0x9": true }, (t) => t.a), false);
 });
 
+test("hasUrgent unwraps WindowService wrappers", () => {
+  const wrappers = [{ toplevel: { lastIpcObject: { address: "0x2" } }, pid: 1 }];
+  assert.strictEqual(U.hasUrgent(wrappers, { "0x2": true }, (t) => t.lastIpcObject.address), true);
+});
+
 test("shouldReveal only when enabled and urgent", () => {
   assert.strictEqual(U.shouldReveal(true, 1), true);
   assert.strictEqual(U.shouldReveal(false, 1), false);

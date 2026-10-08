@@ -7,7 +7,9 @@ function addressFromEvent(data) {
 
 function hasUrgent(toplevels, urgentAddrs, addressOf) {
   if (!urgentAddrs) return false;
-  for (const t of toplevels || []) {
+  for (const item of toplevels || []) {
+    // WindowService.getToplevelsForApp returns { toplevel, pid } wrappers.
+    const t = item && item.toplevel ? item.toplevel : item;
     const a = addressOf(t);
     if (a && urgentAddrs[a]) return true;
   }
