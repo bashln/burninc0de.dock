@@ -35,6 +35,13 @@
 Remaining S1 phases: S1g dock position on four edges (edge geometry committed in
 `logic/edge.js`; the `DockPanel.qml` wiring is still pending).
 
+- S1g (in progress): dock position. `logic/edge.js` holds the pure geometry
+  (tested). `bottom` (default) and `top` are wired: the panel and the bar
+  anchor to the chosen horizontal edge, the bar slides via an animated offset,
+  and the Settings panel gains a Posição group. Verified by screenshot for both
+  edges. The vertical edges (`left`/`right`) still need the row-to-column,
+  magnifier-axis, drag-axis and menu-anchoring refactor.
+
 ### Known issues
 
 - None open. (Previously: the Settings panel clipped — the card is now height-bounded and scrolls, mirroring the pin menu's Flickable; fixed by the `fix:` commit below.)

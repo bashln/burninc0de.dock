@@ -12,6 +12,7 @@ import "logic/transparency.js" as Transparency
 import "logic/actions.js" as Actions
 import "logic/intellihide.js" as Intellihide
 import "logic/urgent.js" as Urgent
+import "logic/edge.js" as Edge
 import Quickshell.Io
 
 PanelWindow {
@@ -22,7 +23,14 @@ PanelWindow {
   required property var modelData
   screen: modelData
 
-  anchors.bottom: true
+  // Dock edge (S1g). `bottom` is the default; `top` mirrors it. Left and right
+  // (vertical) are not wired yet, so they fall back to bottom for now.
+  readonly property var edgeInfo: Edge.info(Settings.position)
+  readonly property bool edgeTop: edgeInfo.edge === "top"
+  readonly property bool edgeBottom: !edgeTop
+
+  anchors.top: edgeTop
+  anchors.bottom: edgeBottom
   anchors.left: true
   anchors.right: true
   WlrLayershell.namespace: "quickshelldock"
@@ -903,7 +911,8 @@ PanelWindow {
 
   Rectangle {
     id: triggerStrip
-    anchors.bottom: parent.bottom
+    anchors.top: root.edgeTop ? parent.top : undefined
+    anchors.bottom: root.edgeBottom ? parent.bottom : undefined
     anchors.horizontalCenter: dockBar.horizontalCenter
     // hot area plus some fat finger margin
     width: dockBar.width + 80
@@ -945,8 +954,16 @@ PanelWindow {
   Rectangle {
     id: dockBar
     anchors.horizontalCenter: parent.horizontalCenter
-    anchors.bottom: parent.bottom
-    anchors.bottomMargin: root.gap - root.dockHeight - 20
+    anchors.top: root.edgeTop ? parent.top : undefined
+    anchors.bottom: root.edgeBottom ? parent.bottom : undefined
+    anchors.topMargin: root.dockOffset
+    anchors.bottomMargin: root.dockOffset
+
+    // The hidden/shown offset the anchors follow. Animating this property with
+    // a Behavior slides the bar; states+PropertyChanges with two anchor
+    // margins is unreliable in QML.
+    property real dockOffset: root.dockVisible ? (root.elevationMargin + root.gap) : (root.gap - root.dockHeight - 20)
+    Behavior on dockOffset { NumberAnimation { duration: Settings.animationTime; easing.type: Easing.InOutQuad } }
 
     implicitWidth: row.implicitWidth + 24
     implicitHeight: row.implicitHeight + 24
@@ -963,23 +980,6 @@ PanelWindow {
     radius: 18
     border.color: Qt.alpha(Color.foreground, 0.18)
     border.width: 1
-
-    states: State {
-      name: "visible"
-      when: root.dockVisible
-      PropertyChanges {
-        target: dockBar
-        anchors.bottomMargin: root.elevationMargin + root.gap
-      }
-    }
-
-    transitions: Transition {
-      NumberAnimation {
-        property: "anchors.bottomMargin"
-        duration: Settings.animationTime
-        easing.type: Easing.InOutQuad
-      }
-    }
 
     Rectangle {
       anchors.fill: parent
@@ -2421,6 +2421,77 @@ PanelWindow {
               color: Color.menu.text
               border.color: Color.menu.background
               border.width: 1
+            }
+          }
+        }
+
+        Text {
+          text: "Posição"
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.pixelSize: 12
+        }
+
+        Column {
+          width: parent.width
+          spacing: 2
+
+          Repeater {
+            model: [
+              { key: "bottom", label: "Embaixo" },
+              { key: "top", label: "Em cima" },
+            ]
+
+            delegate: Rectangle {
+              required property var modelData
+
+              width: parent.width
+              height: 24
+              radius: 6
+              color: posRowHover.hovered ? Color.menu.selectedBackground : "transparent"
+
+              HoverHandler { id: posRowHover }
+
+              TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onSingleTapped: {
+                  Settings.position = modelData.key
+                  Settings.save()
+                }
+              }
+
+              Row {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                spacing: 8
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: 12
+                  height: 12
+                  radius: 6
+                  color: "transparent"
+                  border.color: Qt.alpha(Color.foreground, 0.45)
+                  border.width: 1
+
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: 6
+                    height: 6
+                    radius: 3
+                    color: Color.foreground
+                    visible: Settings.position === modelData.key
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.label
+                  textFormat: Text.PlainText
+                  color: Color.menu.text
+                  font.pixelSize: 12
+                }
+              }
             }
           }
         }
