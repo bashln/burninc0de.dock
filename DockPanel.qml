@@ -627,8 +627,7 @@ PanelWindow {
   // resolution the click handlers have always used inline.
   function focusToplevel(tl) {
     if (!tl) return
-    var addr = tl.lastIpcObject?.address
-    if (!addr || addr === "0") addr = "0x" + tl.address
+    var addr = toplevelAddress(tl)
     if (addr && addr !== "0x0") {
       Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })')
     } else {
@@ -689,10 +688,7 @@ PanelWindow {
     const baseLeft = root.width / 2 - baseContentWidth() / 2
     let off = menuOffset
     for (let j = 0; j < i; j++) off += appBaseWidth(j) + itemSpacing
-    const dist = Math.abs(cursorSceneX - (baseLeft + off + itemSize / 2))
-    if (dist >= magnifyRadius) return 1
-    const t = 1 - dist / magnifyRadius
-    return 1 + (magnifyMaxScale - 1) * t * t
+    return Edge.magnifyScale(cursorSceneX, baseLeft + off + itemSize / 2, magnifyRadius, magnifyMaxScale)
   }
 
   function showDockBar() {

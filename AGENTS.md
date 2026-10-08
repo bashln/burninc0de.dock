@@ -67,9 +67,8 @@ Hyprland dock panel built with Quickshell (QML). No build step; loaded directly 
 - `Quickshell.execDetached(cmdParts)` launches apps; always split `cmd` on whitespace
 - Unread badge: hardcoded Gmail convention; counts `Inbox (N)` in window titles; `_badgeTick` bumps on Hyprland
   `windowtitle` events to re-evaluate the badge bindings without polling
-- The dock uses `WlrLayershell.layer: Top` and `exclusiveZone: -1` (no exclusive zone)
-- Show/hide animates `anchors.bottomMargin` via a `states` + `Transition` (200ms InOutQuad). `hideTimer.interval` is
-  `500`; the delay exists so the triggerStrip/dockBar hover handoff doesn't flicker, not as a show/hide driver
+- The dock uses `WlrLayershell.layer: Top`. `exclusiveZone` reserves the bar thickness only in the `always` mode, so tiling windows stop above it; the other modes use `-1` and float over content
+- Show/hide animates a `dockOffset` property (the anchor margin it feeds) via a `Behavior`, using `Settings.animationTime`. The bar anchors to `Settings.position` (`bottom` default, `top` supported; `left`/`right` fall back to bottom). `hideTimer.interval` is `Settings.hideDelay` (default `500`); the delay exists so the triggerStrip/dockBar hover handoff doesn't flicker, not as a show/hide driver
 - Menus (context + hover window list) must hide the dock explicitly on click
   (`if (!root.workspaceEmpty) root.dockVisible = false`), because focusing a window alone doesn't
 - Menu cards are sized by hidden probe `Text` items; the width cap (`Math.min(..., 320)`) is what makes the rows'
