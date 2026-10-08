@@ -320,17 +320,22 @@ PanelWindow {
   }
 
   // Global (Hyprland layout) rectangle of this screen's dock bar. The panel
-  // window hugs the screen edge, so the bar's global y is the monitor top +
-  // screen height - panel depth + bar y; x is monitor x + bar x.
+  // window hugs the screen edge; Edge.barRect resolves the origin for the
+  // chosen position (bottom is identical to the old inline formula).
   function dockBarRect() {
     const m = root.hlMonitor
     if (!m || !root.screen) return null
-    return {
-      x: m.x + dockBar.x,
-      y: m.y + root.screen.height - root.panelDepth + dockBar.y,
-      w: dockBar.width,
-      h: dockBar.height,
-    }
+    const bar = { x: dockBar.x, y: dockBar.y, w: dockBar.width, h: dockBar.height }
+    const monitor = { x: m.x, y: m.y, w: root.screen.width, h: root.screen.height }
+    return Edge.barRect(monitor, Settings.position, root.panelDepth, bar)
+  }
+
+  // Window position of a menu card hanging off the bar's inner side, centred
+  // on `anchor` (bar-relative). Delegates to logic/edge.js so the placement
+  // follows Settings.position.
+  function placeCard(anchor, size, margin) {
+    const bar = { x: dockBar.x, y: dockBar.y, w: dockBar.width, h: dockBar.height }
+    return Edge.placeMenu(Settings.position, bar, anchor, size, { w: root.width, h: root.height }, margin)
   }
 
   // Plain rectangles for the windows actually rendered behind this screen's
@@ -809,6 +814,8 @@ PanelWindow {
     function onTransparencyModeChanged() { root.updateDynamicNear() }
     function onIntellihideChanged() { root.updateIntellihide() }
     function onIntellihideModeChanged() { root.updateIntellihide() }
+    // Moving the bar changes its rect, so re-measure the window geometry.
+    function onPositionChanged() { root.geometryTimer.restart() }
   }
 
   Connections {
@@ -1513,9 +1520,8 @@ PanelWindow {
     height: root.hoverName !== "" ? labelCard.height : 0
     visible: root.hoverName !== ""
 
-    anchors.bottom: dockBar.top
-    anchors.bottomMargin: 6
-    x: Math.max(0, Math.min(dockBar.x + root.hoverNameAnchorX - width / 2, root.width - width))
+    x: root.placeCard(root.hoverNameAnchorX, { w: width, h: height }, 6).x
+    y: root.placeCard(root.hoverNameAnchorX, { w: width, h: height }, 6).y
 
     Rectangle {
       id: labelCard
@@ -1604,9 +1610,8 @@ PanelWindow {
     height: root.contextOpen ? contextCard.height : 0
     visible: root.contextOpen
 
-    anchors.bottom: dockBar.top
-    anchors.bottomMargin: 2
-    x: Math.max(0, Math.min(dockBar.x + root.contextAnchorX - width / 2, root.width - width))
+    x: root.placeCard(root.contextAnchorX, { w: width, h: height }, 2).x
+    y: root.placeCard(root.contextAnchorX, { w: width, h: height }, 2).y
 
     HoverHandler { id: contextHover }
 
@@ -1673,9 +1678,8 @@ PanelWindow {
     height: root.hoverMenuOpen ? windowCard.height : 0
     visible: root.hoverMenuOpen
 
-    anchors.bottom: dockBar.top
-    anchors.bottomMargin: 2
-    x: Math.max(0, Math.min(dockBar.x + root.hoverMenuAnchorX - width / 2, root.width - width))
+    x: root.placeCard(root.hoverMenuAnchorX, { w: width, h: height }, 2).x
+    y: root.placeCard(root.hoverMenuAnchorX, { w: width, h: height }, 2).y
 
     HoverHandler { id: windowMenuHover }
 
@@ -1761,9 +1765,8 @@ PanelWindow {
     height: root.pinMenuOpen ? pinCard.height : 0
     visible: root.pinMenuOpen
 
-    anchors.bottom: dockBar.top
-    anchors.bottomMargin: 2
-    x: Math.max(0, Math.min(dockBar.x + root.pinMenuAnchorX - width / 2, root.width - width))
+    x: root.placeCard(root.pinMenuAnchorX, { w: width, h: height }, 2).x
+    y: root.placeCard(root.pinMenuAnchorX, { w: width, h: height }, 2).y
 
     HoverHandler { id: pinMenuHover }
 
@@ -1956,11 +1959,10 @@ PanelWindow {
     height: root.settingsOpen ? settingsCard.height : 0
     visible: root.settingsOpen
 
-    anchors.bottom: dockBar.top
-    anchors.bottomMargin: 2
     // Absolute anchor (captured at open time) so the panel stays under the
     // cursor even while dockBar reflows underneath during slider drag.
-    x: Math.max(0, Math.min(root.settingsAnchorX - width / 2, root.width - width))
+    x: root.placeCard(root.settingsAnchorX - dockBar.x, { w: width, h: height }, 2).x
+    y: root.placeCard(root.settingsAnchorX - dockBar.x, { w: width, h: height }, 2).y
 
     HoverHandler { id: settingsHover }
 
@@ -1971,7 +1973,7 @@ PanelWindow {
       // space above the bar minus the panel margin (2), card padding (24),
       // header (~16) and spacing (10) is what the body may use. The floor
       // keeps the panel usable even if the bar sits unusually low.
-      readonly property int scrollMax: Math.max(140, dockBar.y - 54)
+      readonly property int scrollMax: Math.max(140, Edge.menuSpace(Settings.position, { x: dockBar.x, y: dockBar.y, w: dockBar.width, h: dockBar.height }, { w: root.width, h: root.height }) - 54)
 
       implicitWidth: 230
       implicitHeight: settingsColumn.implicitHeight + 24
